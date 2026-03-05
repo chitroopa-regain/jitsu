@@ -4,6 +4,7 @@ import (
 	"github.com/jitsucom/bulker/bulkerapp/app"
 	_ "github.com/jitsucom/bulker/bulkerlib/implementations/api_based"
 	_ "github.com/jitsucom/bulker/bulkerlib/implementations/file_storage"
+	_ "github.com/jitsucom/bulker/bulkerlib/implementations/openpanel"
 	_ "github.com/jitsucom/bulker/bulkerlib/implementations/sql"
 	"github.com/jitsucom/bulker/jitsubase/appbase"
 	"github.com/jitsucom/bulker/jitsubase/logging"

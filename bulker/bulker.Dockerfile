@@ -1,11 +1,11 @@
-FROM debian:bullseye-slim as main
+FROM debian:bookworm-slim as main
 
 RUN apt-get update -y
 RUN apt-get install -y ca-certificates curl
 
 ENV TZ=UTC
 
-FROM golang:1.25-bullseye as build
+FROM golang:1.25-bookworm as build
 
 ARG VERSION
 ENV VERSION $VERSION
@@ -46,7 +46,7 @@ RUN go build -ldflags="-X main.Commit=$VERSION -X main.Timestamp=$BUILD_TIMESTAM
 
 #######################################
 # FINAL STAGE
-FROM main as final
+FROM main AS final
 
 RUN mkdir /app
 WORKDIR /app
