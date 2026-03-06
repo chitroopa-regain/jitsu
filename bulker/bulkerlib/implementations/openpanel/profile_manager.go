@@ -114,7 +114,8 @@ func (pm *ProfileManager) ProcessIdentify(msg map[string]any, profileRows *[]map
 }
 
 // EnsureProfile lazily creates a profile from a track/screen event if one doesn't exist.
-func (pm *ProfileManager) EnsureProfile(msg map[string]any, profileRows *[]map[string]any) {
+// country comes from geo enrichment (already applied to the event).
+func (pm *ProfileManager) EnsureProfile(msg map[string]any, country string, profileRows *[]map[string]any) {
 	userID := firstNonEmpty(msg, "userId", "user_id")
 	anonymousID := firstNonEmpty(msg, "anonymousId", "anonymous_id")
 	profileID := userID
@@ -135,6 +136,9 @@ func (pm *ProfileManager) EnsureProfile(msg map[string]any, profileRows *[]map[s
 	timestamp := getString(msg, "timestamp", time.Now().UTC().Format(time.RFC3339Nano))
 
 	deviceProps := extractDeviceProps(ctx)
+	if country != "" && country != "\x00\x00" {
+		deviceProps["country"] = country
+	}
 
 	profileRow := map[string]any{
 		"id":          profileID,

@@ -76,7 +76,8 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 		s.eventsBuf = append(s.eventsBuf, event)
 		s.eventsBuf = append(s.eventsBuf, syntheticEvents...)
 
-		s.bulker.profileMgr.EnsureProfile(msg, &s.profilesBuf)
+		country, _ := event["country"].(string)
+		s.bulker.profileMgr.EnsureProfile(msg, country, &s.profilesBuf)
 
 	case "identify":
 		s.bulker.profileMgr.ProcessIdentify(msg, &s.profilesBuf, &s.aliasesBuf)
