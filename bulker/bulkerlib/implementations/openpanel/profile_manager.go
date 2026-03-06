@@ -81,10 +81,14 @@ func (pm *ProfileManager) ProcessIdentify(msg map[string]any, profileRows *[]map
 		}
 	}
 
+	firstName := getString(traits, "first_name", getString(traits, "firstName", ""))
+	if firstName == "" {
+		firstName = profileID
+	}
 	profileRow := map[string]any{
 		"id":          profileID,
 		"is_external": userID != "",
-		"first_name":  getString(traits, "first_name", getString(traits, "firstName", "")),
+		"first_name":  firstName,
 		"last_name":   getString(traits, "last_name", getString(traits, "lastName", "")),
 		"email":       getString(traits, "email", ""),
 		"avatar":      getString(traits, "avatar", ""),
@@ -135,7 +139,7 @@ func (pm *ProfileManager) EnsureProfile(msg map[string]any, profileRows *[]map[s
 	profileRow := map[string]any{
 		"id":          profileID,
 		"is_external": userID != "",
-		"first_name":  "",
+		"first_name":  profileID,
 		"last_name":   "",
 		"email":       "",
 		"avatar":      "",
