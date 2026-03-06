@@ -3,6 +3,7 @@ package openpanel
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -60,6 +61,13 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 	if cfg.ProjectID == "" {
 		cfg.ProjectID = "regain-app"
+	}
+	// Fall back to env vars for secrets (injected by Infisical)
+	if cfg.Password == "" {
+		cfg.Password = os.Getenv("BULKER_CLICKHOUSE_PASSWORD")
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = os.Getenv("OPENPANEL_REDIS_URL")
 	}
 
 	// Connect to ClickHouse
