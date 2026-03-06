@@ -90,9 +90,9 @@ main() {
       prisma db push --skip-generate --schema schema.prisma
     fi
 
-    # Run seed if SEED_DEMO_CONFIGURATION is set
-    if [ ! -z "$SEED_DEMO_CONFIGURATION" ]; then
-      echo "SEED_DEMO_CONFIGURATION is set, seeding demo configuration..."
+    # Run seed if SEED_USER_EMAIL or SEED_DEMO_CONFIGURATION is set
+    if [ ! -z "$SEED_USER_EMAIL" ] || [ ! -z "$SEED_DEMO_CONFIGURATION" ]; then
+      echo "Running seed..."
       node /app/webapps/console/build/manage.js seed || echo "Seed failed or skipped (this is ok if already seeded)"
     fi
 

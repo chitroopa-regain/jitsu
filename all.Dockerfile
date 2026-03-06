@@ -138,7 +138,10 @@ COPY --from=builder /app/webapps/console/public ./webapps/console/public
 
 # Copy management CLI script (bundled with esbuild)
 # This allows running management commands like: node /app/webapps/console/build/manage.js seed
+# manage.js uses --external:@prisma/client, so we symlink it from pnpm's standalone output
 COPY --from=builder /app/webapps/console/build/manage.js ./webapps/console/build/
+RUN ln -s /app/node_modules/.pnpm/node_modules/@prisma /app/node_modules/@prisma && \
+    ln -s /app/node_modules/.pnpm/node_modules/.prisma /app/node_modules/.prisma
 
 # Setup cron for scheduled tasks (e.g., cleanup, analytics aggregation)
 # chmod 0644: cron requires specific permissions (owner read/write, others read)

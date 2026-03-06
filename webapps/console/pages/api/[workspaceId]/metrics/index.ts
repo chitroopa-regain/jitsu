@@ -69,7 +69,7 @@ export default createRoute()
         "Content-Type": "text/plain",
       });
       const serverEnv = getServerEnv();
-      const bulkerURLEnv = requireDefined(serverEnv.BULKER_URL, "env BULKER_URL is not defined");
+      const bulkerURLEnv = requireDefined(serverEnv.JITSU_BULKER_URL, "env JITSU_BULKER_URL is not defined");
       const bulkerAuthKey = serverEnv.BULKER_AUTH_KEY ?? "";
       // access prometheus API
       const url = bulkerURLEnv + "/connections-metrics/" + workspace.id;

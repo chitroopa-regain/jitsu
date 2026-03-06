@@ -102,7 +102,7 @@ export async function seedUserAndWorkspace(): Promise<void> {
         password: {
           create: {
             hash: createHash(password),
-            changeAtNextLogin: true,
+            changeAtNextLogin: false,
           },
         },
       },

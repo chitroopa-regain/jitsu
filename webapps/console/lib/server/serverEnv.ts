@@ -162,7 +162,7 @@ const ServerEnvSchema = ClientEnvSchema.extend({
   JITSU_INGEST_PUBLIC_URL: z.string().optional(),
 
   // Bulker (data warehouse connector) service URL
-  BULKER_URL: z.string().optional(),
+  JITSU_BULKER_URL: z.string().optional(),
 
   //k8s injected variables, can be used instead bulker URL
   BULKER_PORT: z.coerce.number().optional(),
@@ -381,8 +381,8 @@ export function getServerEnv(): ServerEnv {
     throw wrapZodError(result);
   }
 
-  if (!result.data.BULKER_URL && result.data.BULKER_PORT && result.data.BULKER_SERVICE_HOST) {
-    result.data.BULKER_URL = `http://${result.data.BULKER_SERVICE_HOST}:${result.data.BULKER_PORT}`;
+  if (!result.data.JITSU_BULKER_URL && result.data.BULKER_PORT && result.data.BULKER_SERVICE_HOST) {
+    result.data.JITSU_BULKER_URL = `http://${result.data.BULKER_SERVICE_HOST}:${result.data.BULKER_PORT}`;
   }
 
   if (!result.data.ROTOR_URL && result.data.ROTOR_PORT && result.data.ROTOR_SERVICE_HOST) {
