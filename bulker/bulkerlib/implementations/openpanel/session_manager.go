@@ -183,7 +183,10 @@ func (sm *SessionManager) ProcessEvent(event map[string]any, sessionRows *[]map[
 			session.EventCount++
 			session.EndedAt = formatTime(event["created_at"])
 			if p := stringVal(event, "path"); p != "" {
-				session.ExitPath = p
+			if session.EntryPath == "" {
+				session.EntryPath = p
+			}
+			session.ExitPath = p
 			}
 			sm.endSession(session, deviceID, event, sessionRows, syntheticEvents)
 		}
@@ -208,6 +211,9 @@ func (sm *SessionManager) ProcessEvent(event map[string]any, sessionRows *[]map[
 	}
 	session.EndedAt = formatTime(event["created_at"])
 	if p := stringVal(event, "path"); p != "" {
+		if session.EntryPath == "" {
+			session.EntryPath = p
+		}
 		session.ExitPath = p
 	}
 	if rev, ok := event["revenue"].(uint64); ok {
