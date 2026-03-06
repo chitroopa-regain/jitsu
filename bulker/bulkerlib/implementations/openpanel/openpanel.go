@@ -98,6 +98,11 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		return nil, fmt.Errorf("failed to ping clickhouse: %v", err)
 	}
 
+	// Ensure OpenPanel tables and materialized views exist
+	if err := EnsureSchema(context.Background(), chConn, cfg.Database); err != nil {
+		return nil, fmt.Errorf("failed to ensure openpanel schema: %v", err)
+	}
+
 	// Connect to Redis
 	redisOpts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
