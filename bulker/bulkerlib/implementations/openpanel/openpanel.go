@@ -75,7 +75,10 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		},
 		DialTimeout: 10 * time.Second,
 	}
-	if cfg.SSLEnabled {
+	switch cfg.Protocol {
+	case "http", "https":
+		chOpts.Protocol = clickhouse.HTTP
+	default:
 		chOpts.Protocol = clickhouse.Native
 	}
 

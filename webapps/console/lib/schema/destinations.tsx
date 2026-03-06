@@ -28,6 +28,7 @@ import tagIcon from "./icons/tag";
 import snowflakeIcon from "./icons/snowflake";
 import logRocketIcon from "./icons/logrocket";
 import intercomIcon from "./icons/intercom";
+import openpanelIcon from "./icons/openpanel";
 import webhookIcon from "./icons/webhook";
 import { branding } from "../branding";
 import * as meta from "@jitsu/destination-functions/src/meta";
@@ -1061,6 +1062,47 @@ export const coreDestinations: DestinationType<any>[] = [
         sending data to DWH and leave your existing Segment configuration for other purposes
       </>
     ),
+  },
+  {
+    id: "openpanel",
+    usesBulker: true,
+    icon: openpanelIcon,
+    title: "OpenPanel",
+    tags: "Product Analytics",
+    connectionOptions: z.object({
+      disabled: z.boolean().optional(),
+      mode: z.enum(["batch"]).default("batch"),
+      batchSize: z.number().min(1).default(10000),
+      frequency: z.number().int().min(1).max(1440).default(1).nullish(),
+    }).merge(FunctionsConnectionOptions),
+    credentials: z.object({
+      protocol: z
+        .enum(["http", "https", "clickhouse", "clickhouse-secure"])
+        .default("http")
+        .describe("Protocol used for ClickHouse connection"),
+      hosts: z
+        .string()
+        .describe("ClickHouse host:port for the OpenPanel database (e.g. clickhouse:8123)"),
+      database: z.string().default("openpanel").describe("ClickHouse database name for OpenPanel data"),
+      username: z.string().default("default").describe("ClickHouse username"),
+      password: z.string().optional().describe("ClickHouse password"),
+      projectId: z.string().default("regain-app").describe("OpenPanel Project ID"),
+      geoServiceUrl: z
+        .string()
+        .default("http://gunter:6600")
+        .describe("Geo enrichment service URL (Gunter)"),
+      redisUrl: z
+        .string()
+        .default("redis://openpanel-redis:6379/0")
+        .describe("Redis URL for session and profile state"),
+    }),
+    credentialsUi: {
+      password: {
+        password: true,
+      },
+    },
+    description:
+      "OpenPanel analytics — transforms Segment events into OpenPanel schema and writes to ClickHouse (events, sessions, profiles, aliases tables).",
   },
   {
     id: "webhook",
