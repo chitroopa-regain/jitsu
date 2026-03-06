@@ -10,6 +10,7 @@ import (
 )
 
 const geoCacheTTL = 1 * time.Hour
+const cacheEvictInterval = 10 * time.Minute
 
 type geoResult struct {
 	country   string
@@ -17,14 +18,16 @@ type geoResult struct {
 	region    string
 	latitude  float32
 	longitude float32
+	hasCoords bool
 	expiresAt time.Time
 }
 
 type GeoEnricher struct {
-	serviceURL string
-	client     *http.Client
-	mu         sync.RWMutex
-	cache      map[string]geoResult
+	serviceURL    string
+	client        *http.Client
+	mu            sync.RWMutex
+	cache         map[string]geoResult
+	lastEvictedAt time.Time
 }
 
 func NewGeoEnricher(serviceURL string) *GeoEnricher {
@@ -76,6 +79,16 @@ func (g *GeoEnricher) Enrich(event map[string]any, ip string) {
 
 	g.mu.Lock()
 	g.cache[ip] = result
+	// Periodically evict expired entries to prevent unbounded growth
+	now := time.Now()
+	if now.Sub(g.lastEvictedAt) > cacheEvictInterval {
+		for k, v := range g.cache {
+			if now.After(v.expiresAt) {
+				delete(g.cache, k)
+			}
+		}
+		g.lastEvictedAt = now
+	}
 	g.mu.Unlock()
 
 	applyGeoResult(event, result)
@@ -101,11 +114,12 @@ func parseGeoResponse(data map[string]any) geoResult {
 		}
 	}
 	if location, ok := data["location"].(map[string]any); ok {
-		if lat, ok := location["latitude"].(float64); ok {
+		lat, hasLat := location["latitude"].(float64)
+		lon, hasLon := location["longitude"].(float64)
+		if hasLat && hasLon {
 			r.latitude = float32(lat)
-		}
-		if lon, ok := location["longitude"].(float64); ok {
 			r.longitude = float32(lon)
+			r.hasCoords = true
 		}
 	}
 	return r
@@ -121,10 +135,8 @@ func applyGeoResult(event map[string]any, r geoResult) {
 	if r.region != "" {
 		event["region"] = r.region
 	}
-	if r.latitude != 0 {
+	if r.hasCoords {
 		event["latitude"] = r.latitude
-	}
-	if r.longitude != 0 {
 		event["longitude"] = r.longitude
 	}
 }
