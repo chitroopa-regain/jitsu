@@ -70,27 +70,37 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		cfg.RedisURL = os.Getenv("OPENPANEL_REDIS_URL")
 	}
 
-	// Connect to ClickHouse
-	chOpts := &clickhouse.Options{
-		Addr: []string{cfg.Hosts},
-		Auth: clickhouse.Auth{
-			Database: cfg.Database,
-			Username: cfg.Username,
-			Password: cfg.Password,
-		},
-		Settings: clickhouse.Settings{
-			"max_execution_time": 60,
-		},
-		DialTimeout: 10 * time.Second,
-	}
+	// Connect to ClickHouse (default database first to create target DB)
+	chProtocol := clickhouse.Native
 	switch cfg.Protocol {
 	case "http", "https":
-		chOpts.Protocol = clickhouse.HTTP
-	default:
-		chOpts.Protocol = clickhouse.Native
+		chProtocol = clickhouse.HTTP
 	}
 
-	chConn, err := clickhouse.Open(chOpts)
+	initConn, err := clickhouse.Open(&clickhouse.Options{
+		Addr:     []string{cfg.Hosts},
+		Auth:     clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
+		Protocol: chProtocol,
+		Settings: clickhouse.Settings{"max_execution_time": 60},
+		DialTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to clickhouse: %v", err)
+	}
+	if err := initConn.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.Database)); err != nil {
+		initConn.Close()
+		return nil, fmt.Errorf("failed to create database %s: %v", cfg.Database, err)
+	}
+	initConn.Close()
+
+	// Reconnect with target database
+	chConn, err := clickhouse.Open(&clickhouse.Options{
+		Addr:     []string{cfg.Hosts},
+		Auth:     clickhouse.Auth{Database: cfg.Database, Username: cfg.Username, Password: cfg.Password},
+		Protocol: chProtocol,
+		Settings: clickhouse.Settings{"max_execution_time": 60},
+		DialTimeout: 10 * time.Second,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to clickhouse: %v", err)
 	}

@@ -12,9 +12,6 @@ import (
 // ClickHouse tables and materialized views. The placeholder {{database}} is
 // replaced at runtime with the configured database name.
 var ddlStatements = []string{
-	// 0. Database
-	`CREATE DATABASE IF NOT EXISTS {{database}}`,
-
 	// 1. events
 	`CREATE TABLE IF NOT EXISTS {{database}}.events
 (
