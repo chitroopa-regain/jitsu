@@ -1129,10 +1129,7 @@ export const coreDestinations: DestinationType<any>[] = [
   },
 ];
 
-export const coreDestinationsMap = coreDestinations.reduce(
-  (acc, destination) => {
-    acc[destination.id] = destination;
-    return acc;
-  },
-  {} as Record<string, DestinationType<any>>
-);
+export const coreDestinationsMap = coreDestinations.reduce((acc, destination) => {
+  acc[destination.id] = destination;
+  return acc;
+}, {} as Record<string, DestinationType<any>>);
