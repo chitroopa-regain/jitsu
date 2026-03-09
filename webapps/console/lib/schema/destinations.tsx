@@ -1069,28 +1069,25 @@ export const coreDestinations: DestinationType<any>[] = [
     icon: openpanelIcon,
     title: "OpenPanel",
     tags: "Product Analytics",
-    connectionOptions: z.object({
-      disabled: z.boolean().optional(),
-      mode: z.enum(["batch"]).default("batch"),
-      batchSize: z.number().min(1).default(10000),
-      frequency: z.number().int().min(1).max(1440).default(1).nullish(),
-    }).merge(FunctionsConnectionOptions),
+    connectionOptions: z
+      .object({
+        disabled: z.boolean().optional(),
+        mode: z.enum(["batch"]).default("batch"),
+        batchSize: z.number().min(1).default(10000),
+        frequency: z.number().int().min(1).max(1440).default(1).nullish(),
+      })
+      .merge(FunctionsConnectionOptions),
     credentials: z.object({
       protocol: z
         .enum(["http", "https", "clickhouse", "clickhouse-secure"])
         .default("http")
         .describe("Protocol used for ClickHouse connection"),
-      hosts: z
-        .string()
-        .describe("ClickHouse host:port for the OpenPanel database (e.g. clickhouse:8123)"),
+      hosts: z.string().describe("ClickHouse host:port for the OpenPanel database (e.g. clickhouse:8123)"),
       database: z.string().default("openpanel").describe("ClickHouse database name for OpenPanel data"),
       username: z.string().default("default").describe("ClickHouse username"),
       password: z.string().optional().describe("ClickHouse password"),
       projectId: z.string().default("regain-app").describe("OpenPanel Project ID"),
-      geoServiceUrl: z
-        .string()
-        .default("http://gunter:6600")
-        .describe("Geo enrichment service URL (Gunter)"),
+      geoServiceUrl: z.string().default("http://gunter:6600").describe("Geo enrichment service URL (Gunter)"),
       redisUrl: z
         .string()
         .default("redis://openpanel-redis:6379/0")
@@ -1132,7 +1129,10 @@ export const coreDestinations: DestinationType<any>[] = [
   },
 ];
 
-export const coreDestinationsMap = coreDestinations.reduce((acc, destination) => {
-  acc[destination.id] = destination;
-  return acc;
-}, {} as Record<string, DestinationType<any>>);
+export const coreDestinationsMap = coreDestinations.reduce(
+  (acc, destination) => {
+    acc[destination.id] = destination;
+    return acc;
+  },
+  {} as Record<string, DestinationType<any>>
+);
