@@ -141,7 +141,8 @@ COPY --from=builder /app/webapps/console/public ./webapps/console/public
 # manage.js uses --external:@prisma/client, so we symlink it from pnpm's standalone output
 COPY --from=builder /app/webapps/console/build/manage.js ./webapps/console/build/
 RUN ln -s /app/node_modules/.pnpm/node_modules/@prisma /app/node_modules/@prisma && \
-    ln -s /app/node_modules/.pnpm/node_modules/.prisma /app/node_modules/.prisma
+    ln -s /app/node_modules/.pnpm/node_modules/.prisma /app/node_modules/.prisma && \
+    ln -s /app/node_modules/.pnpm/node_modules/@node-rs /app/node_modules/@node-rs
 
 # Setup cron for scheduled tasks (e.g., cleanup, analytics aggregation)
 # chmod 0644: cron requires specific permissions (owner read/write, others read)

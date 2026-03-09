@@ -3,6 +3,8 @@ import { getServerLog } from "./log";
 import { createHash, hash, randomId } from "juava";
 import { pickSlug, pickWorkspaceName } from "../shared/name-utils";
 import { getServerEnv } from "./serverEnv";
+import { hash as argon2Hash } from "@node-rs/argon2";
+import pg from "pg";
 
 const log = getServerLog("seed");
 
@@ -302,6 +304,189 @@ export async function seedDemoConnections(): Promise<void> {
   } catch (error) {
     log.atError().withCause(error).log("Failed to seed demo connections");
     throw error;
+  }
+}
+
+import { createHash as cryptoCreateHash } from "crypto";
+
+interface OpenPanelSeedConfig {
+  projectId: string;
+  organizationName: string;
+}
+
+/**
+ * Generates a deterministic UUID v4-format string from a namespace + key.
+ * Uses SHA-256 and formats the first 16 bytes as a UUID.
+ */
+function deterministicUuid(namespace: string, key: string): string {
+  const h = cryptoCreateHash("sha256").update(`${namespace}:${key}`).digest();
+  // Set version 4 bits and variant bits
+  h[6] = (h[6]! & 0x0f) | 0x40;
+  h[8] = (h[8]! & 0x3f) | 0x80;
+  const hex = h.toString("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+const SEED_NAMESPACE = "openpanel-destination";
+
+function seedIds(organizationName: string) {
+  const orgId = deterministicUuid(SEED_NAMESPACE, `org:${organizationName}`);
+  return {
+    orgId,
+    userId: deterministicUuid(SEED_NAMESPACE, `user:${organizationName}`),
+    accountId: deterministicUuid(SEED_NAMESPACE, `account:${organizationName}`),
+    memberId: deterministicUuid(SEED_NAMESPACE, `member:${organizationName}`),
+    salt: deterministicUuid(SEED_NAMESPACE, `salt:${organizationName}`),
+  };
+}
+
+/**
+ * Resolves OpenPanel config from the first OpenPanel destination in the Console DB.
+ */
+async function resolveOpenPanelConfig(): Promise<OpenPanelSeedConfig | undefined> {
+  await db.prisma.waitInit();
+  const allDestinations = await db.prisma().configurationObject.findMany({
+    where: { type: "destination", deleted: false },
+  });
+  const opDestination = allDestinations.find((d: any) => (d.config as any)?.destinationType === "openpanel");
+  if (!opDestination) return undefined;
+  const cfg = opDestination.config as any;
+  return {
+    projectId: cfg.projectId,
+    organizationName: cfg.organizationName,
+  };
+}
+
+/**
+ * Seeds the OpenPanel database with an admin user.
+ *
+ * When called from the API (destination create), config is passed directly.
+ * When called from manage.ts startup, config is resolved from the Console DB.
+ */
+export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void> {
+  const postgresPassword = process.env.POSTGRES_PASSWORD;
+  if (!postgresPassword) {
+    log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel seed");
+    return;
+  }
+
+  const serverEnv = getServerEnv();
+  const seedEmail = serverEnv.SEED_USER_EMAIL;
+  const seedPassword = serverEnv.SEED_USER_PASSWORD;
+  if (!seedEmail || !seedPassword) {
+    log.atInfo().log("SEED_USER_EMAIL or SEED_USER_PASSWORD not set, skipping OpenPanel seed");
+    return;
+  }
+
+  // Resolve config from Console DB if not passed directly
+  if (!config) {
+    config = await resolveOpenPanelConfig();
+    if (!config) {
+      log.atInfo().log("No OpenPanel destination configured in Console, skipping OpenPanel seed");
+      return;
+    }
+  }
+
+  const { projectId, organizationName } = config;
+  const ids = seedIds(organizationName);
+
+  log.atInfo().log(`Seeding OpenPanel, projectId=${projectId}, orgId=${ids.orgId}, orgName=${organizationName}`);
+
+  const opClient = new pg.Client({
+    connectionString: `postgresql://jitsu:${postgresPassword}@postgres:5432/openpanel`,
+  });
+
+  try {
+    await opClient.connect();
+
+    log.atInfo().log("Seeding OpenPanel admin user and project...");
+
+    const now = new Date();
+    const passwordHash = await argon2Hash(seedPassword, { algorithm: 2 /* argon2id */ });
+
+    await opClient.query("BEGIN");
+
+    await opClient.query(
+      `INSERT INTO users (id, email, "firstName", "lastName", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (id) DO NOTHING`,
+      [ids.userId, seedEmail, "Regain", "Admin", now]
+    );
+
+    await opClient.query(
+      `INSERT INTO accounts (id, "userId", email, provider, password, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $6) ON CONFLICT (id) DO NOTHING`,
+      [ids.accountId, ids.userId, seedEmail, "email", passwordHash, now]
+    );
+
+    await opClient.query(`INSERT INTO salts (salt) VALUES ($1) ON CONFLICT (salt) DO NOTHING`, [ids.salt]);
+
+    await opClient.query(
+      `INSERT INTO organizations (id, name, "createdByUserId", timezone, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (id) DO NOTHING`,
+      [ids.orgId, organizationName, ids.userId, "Asia/Calcutta", now]
+    );
+
+    await opClient.query(
+      `INSERT INTO members (id, "userId", "organizationId", role, email, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $6) ON CONFLICT (id) DO NOTHING`,
+      [ids.memberId, ids.userId, ids.orgId, "org:admin", seedEmail, now]
+    );
+
+    await opClient.query(
+      `INSERT INTO projects (id, name, "organizationId", types, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (id) DO NOTHING`,
+      [projectId, projectId, ids.orgId, "{app}", now]
+    );
+
+    await opClient.query("COMMIT");
+
+    log.atInfo().log(`✅ OpenPanel seed complete: user=${seedEmail}, org=${ids.orgId}, project=${projectId}`);
+  } catch (error) {
+    await opClient.query("ROLLBACK").catch(() => {});
+    log.atError().withCause(error).log("Failed to seed OpenPanel");
+    throw error;
+  } finally {
+    await opClient.end();
+  }
+}
+
+/**
+ * Removes seeded data from the OpenPanel database.
+ * Only deletes rows created by seedOpenPanel() using deterministic UUIDs derived from organizationName.
+ */
+export async function cleanupOpenPanel(organizationName: string): Promise<void> {
+  const postgresPassword = process.env.POSTGRES_PASSWORD;
+  if (!postgresPassword) {
+    log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel cleanup");
+    return;
+  }
+
+  const ids = seedIds(organizationName);
+
+  const opClient = new pg.Client({
+    connectionString: `postgresql://jitsu:${postgresPassword}@postgres:5432/openpanel`,
+  });
+
+  try {
+    await opClient.connect();
+
+    // Delete in reverse dependency order, targeting only seeded rows
+    await opClient.query("BEGIN");
+    await opClient.query(`DELETE FROM projects WHERE "organizationId" = $1`, [ids.orgId]);
+    await opClient.query(`DELETE FROM members WHERE id = $1`, [ids.memberId]);
+    await opClient.query(`DELETE FROM organizations WHERE id = $1`, [ids.orgId]);
+    await opClient.query(`DELETE FROM accounts WHERE id = $1`, [ids.accountId]);
+    await opClient.query(`DELETE FROM users WHERE id = $1`, [ids.userId]);
+    await opClient.query(`DELETE FROM salts WHERE salt = $1`, [ids.salt]);
+    await opClient.query("COMMIT");
+
+    log.atInfo().log(`✅ OpenPanel seed data cleaned up for org=${organizationName}`);
+  } catch (error) {
+    await opClient.query("ROLLBACK").catch(() => {});
+    log.atError().withCause(error).log("Failed to cleanup OpenPanel seed data");
+    throw error;
+  } finally {
+    await opClient.end();
   }
 }
 

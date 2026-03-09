@@ -9,6 +9,7 @@ import { isReadOnly } from "../../../../../lib/server/read-only-mode";
 import { configObjectAuditLog } from "../../../../../lib/server/audit-log";
 import { trackTelemetryEvent } from "../../../../../lib/server/telemetry";
 import { requireDefined } from "juava";
+import { cleanupOpenPanel, seedOpenPanel } from "../../../../../lib/server/seed";
 
 function defaultMerge(a, b) {
   return { ...a, ...b };
@@ -79,6 +80,13 @@ export const api: Api = {
         prevVersion: object.config,
         newVersion: filtered,
       });
+      // Seed OpenPanel project when an OpenPanel destination is updated (e.g. projectId changed)
+      if (type === "destination" && (filtered as any)?.destinationType === "openpanel") {
+        seedOpenPanel({
+          projectId: (filtered as any).projectId,
+          organizationName: (filtered as any).organizationName,
+        }).catch(err => log.atError().withCause(err).log("Failed to seed OpenPanel after destination update"));
+      }
     },
   },
   DELETE: {
@@ -121,6 +129,12 @@ export const api: Api = {
       });
       await trackTelemetryEvent("config-object-delete", { objectType: type });
       await configObjectAuditLog(user, workspaceId, id, type, "delete", { prevVersion: object.config });
+      // Cleanup OpenPanel seed data when an OpenPanel destination is deleted
+      if (type === "destination" && (object.config as any)?.destinationType === "openpanel") {
+        cleanupOpenPanel((object.config as any)?.organizationName).catch(err =>
+          log.atError().withCause(err).log("Failed to cleanup OpenPanel after destination delete")
+        );
+      }
       return { ...((object.config as any) || {}), workspaceId, id, type };
     },
   },

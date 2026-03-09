@@ -9,6 +9,7 @@ import { configObjectAuditLog } from "../../../../../lib/server/audit-log";
 import { trackTelemetryEvent, withProductAnalytics } from "../../../../../lib/server/telemetry";
 import { containsMaskedSecrets, unmaskSecretsFromOriginal } from "../../../../../lib/schema/secrets";
 import { getServerLog } from "../../../../../lib/server/log";
+import { seedOpenPanel } from "../../../../../lib/server/seed";
 
 const log = getServerLog("api");
 
@@ -97,6 +98,14 @@ export const api: Api = {
         { user, workspace: { id: workspaceId }, req }
       );
       await configObjectAuditLog(user, workspaceId, created.id, type, "create", { newVersion: object });
+      // Seed OpenPanel admin user when an OpenPanel destination is created
+      if (type === "destination" && (object as any)?.destinationType === "openpanel") {
+        const opCfg = object as any;
+        seedOpenPanel({
+          projectId: opCfg.projectId,
+          organizationName: opCfg.organizationName,
+        }).catch(err => log.atError().withCause(err).log("Failed to seed OpenPanel after destination create"));
+      }
       return { id: created.id };
     },
   },
