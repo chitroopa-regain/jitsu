@@ -277,7 +277,7 @@ export function getCompressionType() {
     case "gzip":
       return KafkaJS.CompressionTypes.GZIP;
     case "snappy":
-      return KafkaJS.CompressionTypes.Snappy;
+      return KafkaJS.CompressionTypes.SNAPPY;
     case "lz4":
       return KafkaJS.CompressionTypes.LZ4;
     case "zstd":

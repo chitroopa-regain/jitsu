@@ -99,6 +99,9 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		Auth:     clickhouse.Auth{Database: cfg.Database, Username: cfg.Username, Password: cfg.Password},
 		Protocol: chProtocol,
 		Settings: clickhouse.Settings{"max_execution_time": 60},
+		Compression: &clickhouse.Compression{
+			Method: clickhouse.CompressionLZ4,
+		},
 		DialTimeout: 10 * time.Second,
 	})
 	if err != nil {
