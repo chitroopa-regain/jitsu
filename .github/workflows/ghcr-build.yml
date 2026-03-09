@@ -32,9 +32,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -44,7 +41,7 @@ jobs:
           context: .
           file: all.Dockerfile
           target: console
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/jitsu-console:openpanel-destination
           build-args: |
@@ -60,7 +57,7 @@ jobs:
           context: .
           file: all.Dockerfile
           target: rotor
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/jitsu-rotor:openpanel-destination
           build-args: |
@@ -87,9 +84,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -99,7 +93,7 @@ jobs:
           context: ./bulker
           file: bulker/all.Dockerfile
           target: bulker
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/jitsu-bulker:openpanel-destination
           build-args: |
@@ -114,7 +108,7 @@ jobs:
           context: ./bulker
           file: bulker/all.Dockerfile
           target: ingest
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/jitsu-ingest:openpanel-destination
           build-args: |
