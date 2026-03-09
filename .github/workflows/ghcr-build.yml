@@ -1,0 +1,110 @@
+name: Build and Push to GHCR
+
+on:
+  push:
+    branches:
+      - openpanel-destination
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/chitroopa-regain
+
+jobs:
+  nodejs:
+    name: Build Console & Rotor
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Console
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: all.Dockerfile
+          target: console
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/jitsu-console:openpanel-destination
+          build-args: |
+            JITSU_BUILD_VERSION=${{ github.sha }}
+            JITSU_BUILD_COMMIT_SHA=${{ github.sha }}
+            CI=true
+          cache-from: type=gha,scope=console
+          cache-to: type=gha,mode=max,scope=console
+
+      - name: Build and push Rotor
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: all.Dockerfile
+          target: rotor
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/jitsu-rotor:openpanel-destination
+          build-args: |
+            JITSU_BUILD_VERSION=${{ github.sha }}
+            JITSU_BUILD_COMMIT_SHA=${{ github.sha }}
+            CI=true
+          cache-from: type=gha,scope=rotor
+          cache-to: type=gha,mode=max,scope=rotor
+
+  bulker:
+    name: Build Ingest & Bulker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Bulker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bulker
+          file: bulker/all.Dockerfile
+          target: bulker
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/jitsu-bulker:openpanel-destination
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha,scope=bulker
+          cache-to: type=gha,mode=max,scope=bulker
+
+      - name: Build and push Ingest
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bulker
+          file: bulker/all.Dockerfile
+          target: ingest
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/jitsu-ingest:openpanel-destination
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha,scope=ingest
+          cache-to: type=gha,mode=max,scope=ingest
