@@ -169,7 +169,7 @@ const ServerEnvSchema = ClientEnvSchema.extend({
   BULKER_SERVICE_HOST: z.string().optional(),
 
   // Authentication key for bulker API
-  BULKER_AUTH_KEY: z.string().optional(),
+  JITSU_BULKER_AUTH_KEY: z.string().optional(),
 
   // Rotor service endpoint for profile/function execution
   ROTOR_URL: z.string().optional(),

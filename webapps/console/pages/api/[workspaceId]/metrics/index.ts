@@ -70,7 +70,7 @@ export default createRoute()
       });
       const serverEnv = getServerEnv();
       const bulkerURLEnv = requireDefined(serverEnv.JITSU_BULKER_URL, "env JITSU_BULKER_URL is not defined");
-      const bulkerAuthKey = serverEnv.BULKER_AUTH_KEY ?? "";
+      const bulkerAuthKey = serverEnv.JITSU_BULKER_AUTH_KEY ?? "";
       // access prometheus API
       const url = bulkerURLEnv + "/connections-metrics/" + workspace.id;
       const promMetrics = await rpc(url, {
