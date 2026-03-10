@@ -227,15 +227,11 @@ GROUP BY project_id, name, property_key, property_value, created_at`,
 
 // EnsureSchema creates the OpenPanel database, tables, and materialized views
 // if they do not already exist. Safe to call on every startup.
-// When replicated is true, MergeTree engines are converted to their Replicated
-// variants (e.g. MergeTree -> ReplicatedMergeTree). The Replicated database
-// engine auto-assigns ZooKeeper paths so no explicit paths are needed.
-func EnsureSchema(ctx context.Context, conn driver.Conn, database string, replicated bool) error {
+// When using a Replicated database engine, ClickHouse automatically converts
+// MergeTree engines to their Replicated variants, so no manual conversion is needed.
+func EnsureSchema(ctx context.Context, conn driver.Conn, database string) error {
 	for i, tmpl := range ddlStatements {
 		stmt := strings.ReplaceAll(tmpl, "{{database}}", database)
-		if replicated {
-			stmt = toReplicatedEngines(stmt)
-		}
 		if err := conn.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("schema statement %d failed: %w", i, err)
 		}
@@ -243,17 +239,3 @@ func EnsureSchema(ctx context.Context, conn driver.Conn, database string, replic
 	return nil
 }
 
-// toReplicatedEngines converts MergeTree-family engines to their Replicated variants.
-func toReplicatedEngines(stmt string) string {
-	// Order matters: replace specific variants before base MergeTree
-	replacements := []struct{ from, to string }{
-		{"ENGINE = VersionedCollapsingMergeTree", "ENGINE = ReplicatedVersionedCollapsingMergeTree"},
-		{"ENGINE = ReplacingMergeTree", "ENGINE = ReplicatedReplacingMergeTree"},
-		{"ENGINE = AggregatingMergeTree", "ENGINE = ReplicatedAggregatingMergeTree"},
-		{"ENGINE = MergeTree", "ENGINE = ReplicatedMergeTree"},
-	}
-	for _, r := range replacements {
-		stmt = strings.Replace(stmt, r.from, r.to, 1)
-	}
-	return stmt
-}
