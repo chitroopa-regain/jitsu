@@ -393,6 +393,27 @@ export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void>
   log.atInfo().log(`Seeding OpenPanel, projectId=${projectId}, orgId=${ids.orgId}, orgName=${organizationName}`);
 
   const dbConfig = parseDatabaseUrl(serverEnv.DATABASE_URL);
+
+  // Ensure the openpanel database exists before connecting to it
+  const mainClient = new pg.Client({
+    connectionString: `postgresql://jitsu:${postgresPassword}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
+  });
+  try {
+    await mainClient.connect();
+    const result = await mainClient.query("SELECT 1 FROM pg_database WHERE datname = 'openpanel'");
+    if (result.rowCount === 0) {
+      try {
+        await mainClient.query("CREATE DATABASE openpanel");
+        log.atInfo().log("Created openpanel database");
+      } catch (e: any) {
+        // 42P04 = duplicate_database — another concurrent call already created it
+        if (e.code !== "42P04") throw e;
+      }
+    }
+  } finally {
+    await mainClient.end();
+  }
+
   const opClient = new pg.Client({
     connectionString: `postgresql://jitsu:${postgresPassword}@${dbConfig.host}:${dbConfig.port}/openpanel`,
   });
