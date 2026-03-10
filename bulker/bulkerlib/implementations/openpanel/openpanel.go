@@ -30,6 +30,7 @@ type OpenPanelConfig struct {
 	Password   string `mapstructure:"password" json:"password"`
 	Parameters string `mapstructure:"parameters" json:"parameters"`
 	SSLEnabled bool   `mapstructure:"ssl" json:"ssl"`
+	Replicated bool `mapstructure:"replicated" json:"replicated"`
 
 	// OpenPanel-specific
 	ProjectID     string `mapstructure:"projectId" json:"projectId"`
@@ -92,7 +93,13 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to clickhouse: %v", err)
 	}
-	if err := initConn.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.Database)); err != nil {
+	createDBQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.Database)
+	if cfg.Replicated {
+		// Use Replicated engine so DDL and data auto-replicate across nodes via Keeper.
+		// {shard} and {replica} are resolved from ClickHouse macros.xml config.
+		createDBQuery = fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s ENGINE = Replicated('/clickhouse/databases/%s', '{shard}', '{replica}')", cfg.Database, cfg.Database)
+	}
+	if err := initConn.Exec(context.Background(), createDBQuery); err != nil {
 		initConn.Close()
 		return nil, fmt.Errorf("failed to create database %s: %v", cfg.Database, err)
 	}

@@ -1086,10 +1086,17 @@ export const coreDestinations: DestinationType<any>[] = [
       database: z.string().default("openpanel").describe("ClickHouse database name for OpenPanel data"),
       username: z.string().default("default").describe("ClickHouse username"),
       password: z.string().optional().describe("ClickHouse password"),
+      replicated: z
+        .boolean()
+        .default(false)
+        .describe("Enable Replicated database engine for HA setups with multiple ClickHouse nodes"),
       organizationName: z.string().default("Regain app").describe("OpenPanel Organization name (ID is auto-derived)"),
       projectId: z.string().default("regain-app").describe("OpenPanel Project ID"),
       geoServiceUrl: z.string().default("http://gunter:6600").describe("Geo enrichment service URL (Gunter)"),
-      redisHost: z.string().default("redis://openpanel-kv:6379").describe("Redis host:port for session and profile state"),
+      redisHost: z
+        .string()
+        .default("redis://openpanel-kv:6379")
+        .describe("Redis host:port for session and profile state"),
       redisPassword: z.string().optional().describe("Redis password"),
     }),
     credentialsUi: {
