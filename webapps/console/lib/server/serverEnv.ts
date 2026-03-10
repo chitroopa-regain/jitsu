@@ -351,6 +351,9 @@ const ServerEnvSchema = ClientEnvSchema.extend({
 
   // Enable full environment diagnostics (dangerous - exposes all env vars!)
   __DANGEROUS_ENABLE_FULL_DIAGNOSTICS: z.coerce.boolean().default(false),
+
+  // PostgreSQL password for OpenPanel database seeding/cleanup
+  POSTGRES_PASSWORD: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;

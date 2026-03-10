@@ -365,7 +365,7 @@ async function resolveOpenPanelConfig(): Promise<OpenPanelSeedConfig | undefined
  */
 export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void> {
   // eslint-disable-next-line no-restricted-properties -- POSTGRES_PASSWORD is for OpenPanel DB, not in Jitsu serverEnv
-  const postgresPassword = process.env.POSTGRES_PASSWORD;
+  const postgresPassword = getServerEnv().POSTGRES_PASSWORD;
   if (!postgresPassword) {
     log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel seed");
     return;
@@ -456,7 +456,7 @@ export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void>
  * Only deletes rows created by seedOpenPanel() using deterministic UUIDs derived from organizationName.
  */
 export async function cleanupOpenPanel(organizationName: string): Promise<void> {
-  const postgresPassword = process.env.POSTGRES_PASSWORD;
+  const postgresPassword = getServerEnv().POSTGRES_PASSWORD;
   if (!postgresPassword) {
     log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel cleanup");
     return;
