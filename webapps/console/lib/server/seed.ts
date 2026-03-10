@@ -364,6 +364,7 @@ async function resolveOpenPanelConfig(): Promise<OpenPanelSeedConfig | undefined
  * When called from manage.ts startup, config is resolved from the Console DB.
  */
 export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void> {
+  // eslint-disable-next-line no-restricted-properties -- POSTGRES_PASSWORD is for OpenPanel DB, not in Jitsu serverEnv
   const postgresPassword = process.env.POSTGRES_PASSWORD;
   if (!postgresPassword) {
     log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel seed");

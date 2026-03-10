@@ -3,6 +3,7 @@ package openpanel
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"sync/atomic"
 	"time"
@@ -33,7 +34,8 @@ type OpenPanelConfig struct {
 	// OpenPanel-specific
 	ProjectID     string `mapstructure:"projectId" json:"projectId"`
 	GeoServiceURL string `mapstructure:"geoServiceUrl" json:"geoServiceUrl"`
-	RedisURL      string `mapstructure:"redisUrl" json:"redisUrl"`
+	RedisHost     string `mapstructure:"redisHost" json:"redisHost"`
+	RedisPassword string `mapstructure:"redisPassword" json:"redisPassword"`
 }
 
 type OpenPanelBulker struct {
@@ -66,8 +68,11 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	if cfg.Password == "" {
 		cfg.Password = os.Getenv("BULKER_CLICKHOUSE_PASSWORD")
 	}
-	if cfg.RedisURL == "" {
-		cfg.RedisURL = os.Getenv("OPENPANEL_REDIS_URL")
+	if cfg.RedisPassword == "" {
+		cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
+	}
+	if cfg.RedisHost == "" {
+		cfg.RedisHost = "openpanel-kv:6379"
 	}
 
 	// Connect to ClickHouse (default database first to create target DB)
@@ -117,7 +122,8 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 
 	// Connect to Redis
-	redisOpts, err := redis.ParseURL(cfg.RedisURL)
+	redisURL := fmt.Sprintf("redis://default:%s@%s", url.QueryEscape(cfg.RedisPassword), cfg.RedisHost)
+	redisOpts, err := redis.ParseURL(redisURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse redis URL: %v", err)
 	}

@@ -1089,13 +1089,14 @@ export const coreDestinations: DestinationType<any>[] = [
       organizationName: z.string().default("Regain app").describe("OpenPanel Organization name (ID is auto-derived)"),
       projectId: z.string().default("regain-app").describe("OpenPanel Project ID"),
       geoServiceUrl: z.string().default("http://gunter:6600").describe("Geo enrichment service URL (Gunter)"),
-      redisUrl: z
-        .string()
-        .default("redis://openpanel-redis:6379/0")
-        .describe("Redis URL for session and profile state"),
+      redisHost: z.string().default("redis://openpanel-kv:6379").describe("Redis host:port for session and profile state"),
+      redisPassword: z.string().optional().describe("Redis password"),
     }),
     credentialsUi: {
       password: {
+        password: true,
+      },
+      redisPassword: {
         password: true,
       },
     },
