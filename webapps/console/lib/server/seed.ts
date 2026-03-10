@@ -365,13 +365,12 @@ async function resolveOpenPanelConfig(): Promise<OpenPanelSeedConfig | undefined
  */
 export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void> {
   // eslint-disable-next-line no-restricted-properties -- POSTGRES_PASSWORD is for OpenPanel DB, not in Jitsu serverEnv
-  const postgresPassword = getServerEnv().POSTGRES_PASSWORD;
+  const serverEnv = getServerEnv();
+  const postgresPassword = serverEnv.POSTGRES_PASSWORD;
   if (!postgresPassword) {
     log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel seed");
     return;
   }
-
-  const serverEnv = getServerEnv();
   const seedEmail = serverEnv.SEED_USER_EMAIL;
   const seedPassword = serverEnv.SEED_USER_PASSWORD;
   if (!seedEmail || !seedPassword) {
@@ -393,8 +392,9 @@ export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void>
 
   log.atInfo().log(`Seeding OpenPanel, projectId=${projectId}, orgId=${ids.orgId}, orgName=${organizationName}`);
 
+  const dbConfig = parseDatabaseUrl(serverEnv.DATABASE_URL);
   const opClient = new pg.Client({
-    connectionString: `postgresql://jitsu:${postgresPassword}@postgres:5432/openpanel`,
+    connectionString: `postgresql://jitsu:${postgresPassword}@${dbConfig.host}:${dbConfig.port}/openpanel`,
   });
 
   try {
@@ -456,7 +456,8 @@ export async function seedOpenPanel(config?: OpenPanelSeedConfig): Promise<void>
  * Only deletes rows created by seedOpenPanel() using deterministic UUIDs derived from organizationName.
  */
 export async function cleanupOpenPanel(organizationName: string): Promise<void> {
-  const postgresPassword = getServerEnv().POSTGRES_PASSWORD;
+  const serverEnv = getServerEnv();
+  const postgresPassword = serverEnv.POSTGRES_PASSWORD;
   if (!postgresPassword) {
     log.atInfo().log("POSTGRES_PASSWORD not set, skipping OpenPanel cleanup");
     return;
@@ -464,8 +465,9 @@ export async function cleanupOpenPanel(organizationName: string): Promise<void> 
 
   const ids = seedIds(organizationName);
 
+  const dbConfig = parseDatabaseUrl(serverEnv.DATABASE_URL);
   const opClient = new pg.Client({
-    connectionString: `postgresql://jitsu:${postgresPassword}@postgres:5432/openpanel`,
+    connectionString: `postgresql://jitsu:${postgresPassword}@${dbConfig.host}:${dbConfig.port}/openpanel`,
   });
 
   try {
