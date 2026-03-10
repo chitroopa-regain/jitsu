@@ -30,7 +30,7 @@ type OpenPanelConfig struct {
 	Password   string `mapstructure:"password" json:"password"`
 	Parameters string `mapstructure:"parameters" json:"parameters"`
 	SSLEnabled bool   `mapstructure:"ssl" json:"ssl"`
-	Replicated bool `mapstructure:"replicated" json:"replicated"`
+	Replicated bool   `mapstructure:"replicated" json:"replicated"`
 
 	// OpenPanel-specific
 	ProjectID     string `mapstructure:"projectId" json:"projectId"`
@@ -84,10 +84,10 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 
 	initConn, err := clickhouse.Open(&clickhouse.Options{
-		Addr:     []string{cfg.Hosts},
-		Auth:     clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
-		Protocol: chProtocol,
-		Settings: clickhouse.Settings{"max_execution_time": 60},
+		Addr:        []string{cfg.Hosts},
+		Auth:        clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
+		Protocol:    chProtocol,
+		Settings:    clickhouse.Settings{"max_execution_time": 60},
 		DialTimeout: 10 * time.Second,
 	})
 	if err != nil {
@@ -124,7 +124,7 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 
 	// Ensure OpenPanel tables and materialized views exist
-	if err := EnsureSchema(context.Background(), chConn, cfg.Database); err != nil {
+	if err := EnsureSchema(context.Background(), chConn, cfg.Database, cfg.Replicated); err != nil {
 		return nil, fmt.Errorf("failed to ensure openpanel schema: %v", err)
 	}
 
