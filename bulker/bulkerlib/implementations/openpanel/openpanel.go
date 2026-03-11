@@ -124,7 +124,7 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 
 	// Ensure OpenPanel tables and materialized views exist
-	if err := EnsureSchema(context.Background(), chConn, cfg.Database); err != nil {
+	if err := EnsureSchema(context.Background(), chConn, cfg.Database, cfg.Replicated); err != nil {
 		return nil, fmt.Errorf("failed to ensure openpanel schema: %v", err)
 	}
 
