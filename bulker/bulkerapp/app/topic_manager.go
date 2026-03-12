@@ -239,16 +239,7 @@ func (tm *TopicManager) processMetadata(metadata *kafka.Metadata, nonEmptyTopics
 					tm.streamConsumers[destinationId] = append(tm.streamConsumers[destinationId], streamConsumer)
 				case "batch":
 					batchPeriodSec := utils.Nvl(int(bulker.BatchFrequencyOption.Get(destination.streamOptions)*60), tm.config.BatchRunnerPeriodSec)
-					// check topic partitions count
-					var err error
-					if len(topicMetadata.Partitions) > 1 {
-						metrics.ConsumerErrors(topic, mode, destinationId, tableName, "invalid_partitions_count").Inc()
-						err = fmt.Errorf("Topic has more than 1 partition. Batch Consumer supports only topics with a single partition")
-					}
-					var batchConsumer *BatchConsumerImpl
-					if err == nil {
-						batchConsumer, err = NewBatchConsumer(tm.repository, destinationId, batchPeriodSec, topic, tm.config, tm.kafkaConfig, tm.batchProducer, tm.eventsLogService, tm)
-					}
+					batchConsumer, err := NewBatchConsumer(tm.repository, destinationId, batchPeriodSec, topic, tm.config, tm.kafkaConfig, tm.batchProducer, tm.eventsLogService, tm)
 					if err != nil {
 						topicsErrorsByMode[mode]++
 						tm.Errorf("Failed to create batch consumer for destination topic: %s: %v", topic, err)

@@ -266,86 +266,156 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 		bc.errorMetric("resume_error")
 		return BatchCounters{}, bc.NewError("Failed to resume kafka consumer: %v", err)
 	}
-	var partition int32 = 0
+
+	// Stop heartbeat goroutine from previous run without resuming Kafka partitions.
+	// This clears bc.paused so that resume() in processBatch() becomes a no-op —
+	// the partition loop handles Pause/Resume at the Kafka level instead.
+	bc._unpause()
+	for i := 0; i < 100 && bc.paused.Load(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// --- PARTITION ASSIGNMENT (replaces hardcoded partition=0) ---
+	var assignedPartitions []kafka.TopicPartition
+
 	if bc.mode == "retry" && bc.topicId == bc.config.KafkaDestinationsRetryTopicName {
-		var ass []kafka.TopicPartition
-		var err error
+		// Retry consumer: wait for explicit Assign() to take effect
 		for i := 0; i < 10; i++ {
-			ass, err = consumer.Assignment()
-			if err != nil || len(ass) != 1 {
+			ass, assErr := consumer.Assignment()
+			if assErr != nil || len(ass) != 1 {
 				time.Sleep(time.Second * time.Duration(i+1))
+			} else {
+				assignedPartitions = ass
+				break
 			}
 		}
-		if err != nil || len(ass) != 1 {
+		if len(assignedPartitions) == 0 {
 			bc.errorMetric("assignment_error")
-			return BatchCounters{}, bc.NewError("Failed to get consumer assignment (%d): %v", len(ass), err)
+			return BatchCounters{}, bc.NewError("Failed to get retry consumer assignment")
 		}
-		partition = ass[0].Partition
-		bc.Infof("Assigned partition: %d", partition)
-	}
-	_, highOffset, err = consumer.QueryWatermarkOffsets(bc.topicId, partition, 10_000)
-	updatedHighOffset = highOffset
-	offsets, erro := consumer.Committed([]kafka.TopicPartition{{Topic: &bc.topicId, Partition: partition}}, 10_000)
-	if len(offsets) > 0 {
-		if offsets[0].Offset != kafka.OffsetInvalid {
-			commitedOffset = int64(offsets[0].Offset)
-		} else {
-			bc.Errorf("Failed to query commited offsets.")
-		}
+		bc.Infof("Assigned partition: %d", assignedPartitions[0].Partition)
 	} else {
-		bc.Errorf("Failed to query commited offsets: %v", erro)
+		// Batch consumer: wait for consumer group assignment via Subscribe
+		for i := 0; i < 30; i++ {
+			ass, _ := consumer.Assignment()
+			if len(ass) > 0 {
+				assignedPartitions = ass
+				break
+			}
+			consumer.Poll(1000) // triggers group join + rebalance
+		}
+		if len(assignedPartitions) == 0 {
+			bc.Debugf("No partitions assigned — standby mode")
+			return BatchCounters{}, nil
+		}
+		bc.Infof("Assigned %d partition(s): %v", len(assignedPartitions), partitionIds(assignedPartitions))
 	}
-	if err != nil {
-		bc.errorMetric("query_watermark_failed")
-		return BatchCounters{}, bc.NewError("Failed to query watermark offsets: %v", err)
-	}
-	if !bc.shouldConsume(partition, commitedOffset, highOffset) {
-		bc.Debugf("Consumer should not consume. offsets: %d-%d", commitedOffset, highOffset)
-		return BatchCounters{}, nil
-	}
-	lastOffsetQueryTime := time.Now()
-	bc.Debugf("Starting consuming messages from topic. Messages in topic: ~%d. ", highOffset-commitedOffset)
-	batchNumber := 1
-	for {
+
+	// --- PER-PARTITION PROCESSING ---
+	for _, tp := range assignedPartitions {
 		if bc.retired.Load() {
 			return
 		}
 		if bc.destinationId != "" {
 			currentDst := bc.repository.GetDestination(bc.destinationId)
 			if currentDst == nil || currentDst.configHash != destination.configHash {
-				bc.Infof("Destination config has changed. Finishing this batch.")
+				bc.Infof("Destination config changed. Stopping.")
 				return
 			}
 		}
-		batchCounters, batchState, nextBatch, err2 := bc.processBatch(destination, batchNumber, maxBatchSize, maxBatchSizeBytes, retryBatchSize, highOffset, int(updatedHighOffset))
-		if err2 != nil {
-			if nextBatch {
-				bc.Errorf("Batch finished with error: %v stats: %s nextBatch: %t", err2, batchCounters, nextBatch)
-			}
-		}
-		bc.countersMetric(batchCounters)
-		totalState.Merge(batchState)
-		counters.accumulate(batchCounters)
-		if batchCounters.consumed > 0 {
-			if time.Since(lastOffsetQueryTime) > 1*time.Minute || !nextBatch {
-				var err1 error
-				consumer = bc.consumer.Load()
-				_, updatedHighOffset, err1 = consumer.QueryWatermarkOffsets(bc.topicId, partition, 10_000)
-				if err1 != nil {
-					bc.Errorf("Failed to query watermark offsets: %v", err1)
-					bc.errorMetric("query_watermark_failed")
-				}
-				lastOffsetQueryTime = time.Now()
-			}
-			queueSize := math.Max(float64(updatedHighOffset-batchCounters.firstOffset-int64(batchCounters.consumed)), 0)
-			metrics.ConsumerQueueSize(bc.topicId, bc.mode, bc.destinationId, bc.tableName).Set(queueSize)
-		}
-		if !nextBatch {
-			err = err2
+
+		partition := tp.Partition
+
+		// Check if assignment changed due to rebalance (compare actual partitions, not just count)
+		currentAss, _ := consumer.Assignment()
+		if !samePartitions(assignedPartitions, currentAss) {
+			bc.Infof("Assignment changed during processing (was %v, now %v). Aborting to re-init.", partitionIds(assignedPartitions), partitionIds(currentAss))
 			return
 		}
-		batchNumber++
+
+		// Pause all, resume only current partition
+		if len(assignedPartitions) > 1 {
+			if pauseErr := consumer.Pause(assignedPartitions); pauseErr != nil {
+				bc.Errorf("Failed to pause partitions: %v", pauseErr)
+				return
+			}
+			if resumeErr := consumer.Resume([]kafka.TopicPartition{tp}); resumeErr != nil {
+				bc.Errorf("Failed to resume partition %d: %v", partition, resumeErr)
+				return
+			}
+		}
+
+		// Per-partition watermark + committed offset
+		_, highOffset, err = consumer.QueryWatermarkOffsets(bc.topicId, partition, 10_000)
+		updatedHighOffset = highOffset
+		if err != nil {
+			bc.errorMetric("query_watermark_failed")
+			bc.Errorf("Failed to query watermark for partition %d: %v", partition, err)
+			continue
+		}
+
+		commitedOffset = int64(kafka.OffsetBeginning)
+		offsets, erro := consumer.Committed([]kafka.TopicPartition{{Topic: &bc.topicId, Partition: partition}}, 10_000)
+		if len(offsets) > 0 {
+			if offsets[0].Offset != kafka.OffsetInvalid {
+				commitedOffset = int64(offsets[0].Offset)
+			} else {
+				bc.Errorf("Failed to query commited offsets for partition %d.", partition)
+			}
+		} else {
+			bc.Errorf("Failed to query commited offsets for partition %d: %v", partition, erro)
+		}
+
+		if !bc.shouldConsume(partition, commitedOffset, highOffset) {
+			bc.Debugf("Partition %d: nothing to consume (%d-%d)", partition, commitedOffset, highOffset)
+			continue
+		}
+
+		lastOffsetQueryTime := time.Now()
+		bc.Debugf("Starting consuming partition %d. Messages: ~%d.", partition, highOffset-commitedOffset)
+		batchNumber := 1
+		for {
+			if bc.retired.Load() {
+				return
+			}
+			if bc.destinationId != "" {
+				currentDst := bc.repository.GetDestination(bc.destinationId)
+				if currentDst == nil || currentDst.configHash != destination.configHash {
+					bc.Infof("Destination config has changed. Finishing this batch.")
+					return
+				}
+			}
+			batchCounters, batchState, nextBatch, err2 := bc.processBatch(destination, batchNumber, maxBatchSize, maxBatchSizeBytes, retryBatchSize, highOffset, int(updatedHighOffset))
+			if err2 != nil {
+				if nextBatch {
+					bc.Errorf("Batch finished with error: %v stats: %s nextBatch: %t", err2, batchCounters, nextBatch)
+				}
+			}
+			bc.countersMetric(batchCounters)
+			totalState.Merge(batchState)
+			counters.accumulate(batchCounters)
+			if batchCounters.consumed > 0 {
+				if time.Since(lastOffsetQueryTime) > 1*time.Minute || !nextBatch {
+					var err1 error
+					consumer = bc.consumer.Load()
+					_, updatedHighOffset, err1 = consumer.QueryWatermarkOffsets(bc.topicId, partition, 10_000)
+					if err1 != nil {
+						bc.Errorf("Failed to query watermark offsets: %v", err1)
+						bc.errorMetric("query_watermark_failed")
+					}
+					lastOffsetQueryTime = time.Now()
+				}
+				queueSize := math.Max(float64(updatedHighOffset-batchCounters.firstOffset-int64(batchCounters.consumed)), 0)
+				metrics.ConsumerQueueSize(bc.topicId, bc.mode, bc.destinationId, bc.tableName).Set(queueSize)
+			}
+			if !nextBatch {
+				err = err2
+				return // terminal error — stop processing all partitions
+			}
+			batchNumber++
+		}
 	}
+	return
 }
 
 func (bc *AbstractBatchConsumer) close() error {
@@ -642,6 +712,30 @@ func (bc *AbstractBatchConsumer) countersMetric(counters BatchCounters) {
 			}
 		}
 	}
+}
+
+func partitionIds(tps []kafka.TopicPartition) []int32 {
+	ids := make([]int32, len(tps))
+	for i, tp := range tps {
+		ids[i] = tp.Partition
+	}
+	return ids
+}
+
+func samePartitions(a, b []kafka.TopicPartition) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[int32]struct{}, len(a))
+	for _, tp := range a {
+		set[tp.Partition] = struct{}{}
+	}
+	for _, tp := range b {
+		if _, ok := set[tp.Partition]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 type BatchCounters struct {
