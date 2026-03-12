@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/jitsucom/bulker/jitsubase/logging"
 )
 
 const geoCacheTTL = 1 * time.Hour
@@ -31,6 +33,11 @@ type GeoEnricher struct {
 }
 
 func NewGeoEnricher(serviceURL string) *GeoEnricher {
+	if serviceURL == "" {
+		logging.Errorf("[geo-enricher] geoServiceUrl is empty — geo enrichment will be disabled")
+	} else {
+		logging.Infof("[geo-enricher] initialized with service URL: %s", serviceURL)
+	}
 	return &GeoEnricher{
 		serviceURL: serviceURL,
 		client: &http.Client{
@@ -41,13 +48,18 @@ func NewGeoEnricher(serviceURL string) *GeoEnricher {
 }
 
 func (g *GeoEnricher) Enrich(event map[string]any, ip string) {
-	if ip == "" || g.serviceURL == "" {
+	if g.serviceURL == "" {
+		return
+	}
+	if ip == "" {
+		logging.Warnf("[geo-enricher] event has no IP, skipping geo enrichment")
 		return
 	}
 
 	// Skip private/loopback IPs
 	parsed := net.ParseIP(ip)
 	if parsed == nil || parsed.IsLoopback() || parsed.IsPrivate() || parsed.IsUnspecified() {
+		logging.Debugf("[geo-enricher] skipping private/loopback IP: %s", ip)
 		return
 	}
 
@@ -60,17 +72,25 @@ func (g *GeoEnricher) Enrich(event map[string]any, ip string) {
 		return
 	}
 
-	resp, err := g.client.Get(fmt.Sprintf("%s/api/geo-lookup/%s?exclude_whois=true", g.serviceURL, ip))
-	if err != nil || resp.StatusCode != 200 {
+	url := fmt.Sprintf("%s/api/geo-lookup/%s?exclude_whois=true", g.serviceURL, ip)
+	resp, err := g.client.Get(url)
+	if err != nil {
+		logging.Errorf("[geo-enricher] failed to call %s: %v", url, err)
 		if resp != nil {
 			resp.Body.Close()
 		}
+		return
+	}
+	if resp.StatusCode != 200 {
+		logging.Errorf("[geo-enricher] unexpected status %d from %s", resp.StatusCode, url)
+		resp.Body.Close()
 		return
 	}
 	defer resp.Body.Close()
 
 	var data map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		logging.Errorf("[geo-enricher] failed to decode response for IP %s: %v", ip, err)
 		return
 	}
 

@@ -8,6 +8,7 @@ import (
 	bulkerlib "github.com/jitsucom/bulker/bulkerlib"
 	"github.com/jitsucom/bulker/bulkerlib/types"
 	"github.com/jitsucom/bulker/jitsubase/jsonorder"
+	"github.com/jitsucom/bulker/jitsubase/logging"
 )
 
 type OpenPanelStream struct {
@@ -84,6 +85,9 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 
 	case "alias":
 		s.bulker.profileMgr.ProcessAlias(msg, &s.aliasesBuf)
+
+	default:
+		logging.Warnf("[openpanel] unknown message type %q, skipping", msgType)
 	}
 
 	s.state.SuccessfulRows++

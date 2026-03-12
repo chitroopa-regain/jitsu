@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jitsucom/bulker/jitsubase/logging"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -51,22 +52,34 @@ func (sm *SessionManager) sessionKey(deviceID string) string {
 func (sm *SessionManager) getSession(deviceID string) *sessionState {
 	raw, err := sm.rdb.Get(context.Background(), sm.sessionKey(deviceID)).Bytes()
 	if err != nil {
+		if err != redis.Nil {
+			logging.Errorf("[session-mgr] redis GET %s failed: %v", sm.sessionKey(deviceID), err)
+		}
 		return nil
 	}
 	var s sessionState
 	if err := json.Unmarshal(raw, &s); err != nil {
+		logging.Errorf("[session-mgr] unmarshal session for device %s failed: %v", deviceID, err)
 		return nil
 	}
 	return &s
 }
 
 func (sm *SessionManager) saveSession(deviceID string, s *sessionState) {
-	data, _ := json.Marshal(s)
-	sm.rdb.SetEx(context.Background(), sm.sessionKey(deviceID), data, sessionTTL)
+	data, err := json.Marshal(s)
+	if err != nil {
+		logging.Errorf("[session-mgr] marshal session for device %s failed: %v", deviceID, err)
+		return
+	}
+	if err := sm.rdb.SetEx(context.Background(), sm.sessionKey(deviceID), data, sessionTTL).Err(); err != nil {
+		logging.Errorf("[session-mgr] redis SETEX %s failed: %v", sm.sessionKey(deviceID), err)
+	}
 }
 
 func (sm *SessionManager) deleteSession(deviceID string) {
-	sm.rdb.Del(context.Background(), sm.sessionKey(deviceID))
+	if err := sm.rdb.Del(context.Background(), sm.sessionKey(deviceID)).Err(); err != nil {
+		logging.Errorf("[session-mgr] redis DEL %s failed: %v", sm.sessionKey(deviceID), err)
+	}
 }
 
 func (sm *SessionManager) newSession(event map[string]any) *sessionState {

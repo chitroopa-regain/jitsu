@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jitsucom/bulker/jitsubase/logging"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -99,8 +100,12 @@ func (pm *ProfileManager) ProcessIdentify(msg map[string]any, profileRows *[]map
 	*profileRows = append(*profileRows, profileRow)
 
 	// Cache in Redis
-	data, _ := json.Marshal(profileRow)
-	pm.rdb.SetEx(context.Background(), pm.profileKey(profileID), data, profileTTL)
+	data, err := json.Marshal(profileRow)
+	if err != nil {
+		logging.Errorf("[profile-mgr] marshal profile %s failed: %v", profileID, err)
+	} else if err := pm.rdb.SetEx(context.Background(), pm.profileKey(profileID), data, profileTTL).Err(); err != nil {
+		logging.Errorf("[profile-mgr] redis SETEX %s failed: %v", pm.profileKey(profileID), err)
+	}
 
 	// If both userId and anonymousId present, create an alias
 	if userID != "" && anonymousID != "" && userID != anonymousID {
@@ -153,8 +158,12 @@ func (pm *ProfileManager) EnsureProfile(msg map[string]any, country string, prof
 	}
 	*profileRows = append(*profileRows, profileRow)
 
-	data, _ := json.Marshal(profileRow)
-	pm.rdb.SetEx(context.Background(), pm.profileKey(profileID), data, profileTTL)
+	data, err := json.Marshal(profileRow)
+	if err != nil {
+		logging.Errorf("[profile-mgr] marshal profile %s failed: %v", profileID, err)
+	} else if err := pm.rdb.SetEx(context.Background(), pm.profileKey(profileID), data, profileTTL).Err(); err != nil {
+		logging.Errorf("[profile-mgr] redis SETEX %s failed: %v", pm.profileKey(profileID), err)
+	}
 }
 
 // ProcessAlias processes an alias event.
