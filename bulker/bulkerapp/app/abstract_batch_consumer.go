@@ -360,7 +360,7 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 			if offsets[0].Offset != kafka.OffsetInvalid {
 				commitedOffset = int64(offsets[0].Offset)
 			} else {
-				bc.Errorf("Failed to query commited offsets for partition %d.", partition)
+				bc.Infof("No committed offset for partition %d (new partition). Starting from beginning.", partition)
 			}
 		} else {
 			bc.Errorf("Failed to query commited offsets for partition %d: %v", partition, erro)
@@ -409,8 +409,11 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 				metrics.ConsumerQueueSize(bc.topicId, bc.mode, bc.destinationId, bc.tableName).Set(queueSize)
 			}
 			if !nextBatch {
-				err = err2
-				return // terminal error — stop processing all partitions
+				if err2 != nil {
+					err = err2
+					return // terminal error — stop processing all partitions
+				}
+				break // reached watermark — move to next partition
 			}
 			batchNumber++
 		}
