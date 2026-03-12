@@ -638,7 +638,7 @@ func (tm *TopicManager) createDestinationTopic(topic string, config map[string]s
 	topicRes, err := tm.kaftaAdminClient.CreateTopics(context.Background(), []kafka.TopicSpecification{
 		{
 			Topic:         topic,
-			NumPartitions: 1,
+			NumPartitions: tm.config.KafkaBatchTopicPartitions,
 			//TODO  get broker count from admin
 			ReplicationFactor: tm.config.KafkaTopicReplicationFactor,
 			Config:            topicConfig,

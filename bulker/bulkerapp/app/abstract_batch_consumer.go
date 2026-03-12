@@ -372,7 +372,14 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 		}
 
 		lastOffsetQueryTime := time.Now()
-		bc.Debugf("Starting consuming partition %d. Messages: ~%d.", partition, highOffset-commitedOffset)
+		partitionStart := time.Now()
+		// Time budget per partition: batch period / number of assigned partitions.
+		// Ensures all partitions get serviced within one ConsumeAll cycle.
+		maxPartitionTime := time.Duration(bc.batchPeriodSec) * time.Second / time.Duration(len(assignedPartitions))
+		if maxPartitionTime < 30*time.Second {
+			maxPartitionTime = 30 * time.Second
+		}
+		bc.Debugf("Starting consuming partition %d. Messages: ~%d. Time budget: %s", partition, highOffset-commitedOffset, maxPartitionTime)
 		batchNumber := 1
 		for {
 			if bc.retired.Load() {
@@ -384,6 +391,12 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 					bc.Infof("Destination config has changed. Finishing this batch.")
 					return
 				}
+			}
+			// Check for rebalance between batches (not just between partitions)
+			currentAss, _ := consumer.Assignment()
+			if !samePartitions(assignedPartitions, currentAss) {
+				bc.Infof("Assignment changed during batch processing (was %v, now %v). Aborting to re-init.", partitionIds(assignedPartitions), partitionIds(currentAss))
+				return
 			}
 			batchCounters, batchState, nextBatch, err2 := bc.processBatch(destination, batchNumber, maxBatchSize, maxBatchSizeBytes, retryBatchSize, highOffset, int(updatedHighOffset))
 			if err2 != nil {
@@ -414,6 +427,11 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 					return // terminal error — stop processing all partitions
 				}
 				break // reached watermark — move to next partition
+			}
+			// Time budget exceeded — yield to next partition
+			if len(assignedPartitions) > 1 && time.Since(partitionStart) >= maxPartitionTime {
+				bc.Infof("Partition %d time budget exceeded (%s). Yielding to next partition.", partition, time.Since(partitionStart).Round(time.Second))
+				break
 			}
 			batchNumber++
 		}
