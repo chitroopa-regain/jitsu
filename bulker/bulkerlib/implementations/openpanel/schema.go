@@ -134,7 +134,24 @@ ENGINE = MergeTree
 ORDER BY (project_id, profile_id, alias, created_at)
 SETTINGS index_granularity = 8192`,
 
-	// 5. MV: dau_mv
+	// 5. session_replay_chunks (empty — required for dashboard LEFT JOIN)
+	`CREATE TABLE IF NOT EXISTS {{database}}.session_replay_chunks
+(
+    project_id String CODEC(ZSTD(3)),
+    session_id String CODEC(ZSTD(3)),
+    chunk_index UInt16,
+    started_at DateTime64(3) CODEC(DoubleDelta, ZSTD(3)),
+    ended_at DateTime64(3) CODEC(DoubleDelta, ZSTD(3)),
+    events_count UInt16,
+    is_full_snapshot Bool,
+    payload String CODEC(ZSTD(6))
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(started_at)
+ORDER BY (project_id, session_id, started_at, chunk_index)
+SETTINGS index_granularity = 8192`,
+
+	// 6. MV: dau_mv
 	`CREATE MATERIALIZED VIEW IF NOT EXISTS {{database}}.dau_mv
 (
     date Date,
@@ -152,7 +169,7 @@ AS SELECT
 FROM {{database}}.events
 GROUP BY date, project_id`,
 
-	// 6. MV: cohort_events_mv
+	// 7. MV: cohort_events_mv
 	`CREATE MATERIALIZED VIEW IF NOT EXISTS {{database}}.cohort_events_mv
 (
     project_id String,
@@ -174,7 +191,7 @@ FROM {{database}}.events
 WHERE profile_id != device_id
 GROUP BY project_id, name, created_at, profile_id`,
 
-	// 7. MV: distinct_event_names_mv
+	// 8. MV: distinct_event_names_mv
 	`CREATE MATERIALIZED VIEW IF NOT EXISTS {{database}}.distinct_event_names_mv
 (
     project_id String,
@@ -193,7 +210,7 @@ AS SELECT
 FROM {{database}}.events
 GROUP BY project_id, name`,
 
-	// 8. MV: event_property_values_mv
+	// 9. MV: event_property_values_mv
 	`CREATE MATERIALIZED VIEW IF NOT EXISTS {{database}}.event_property_values_mv
 (
     project_id String,
