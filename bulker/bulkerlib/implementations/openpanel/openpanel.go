@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -35,8 +36,10 @@ type OpenPanelConfig struct {
 	// OpenPanel-specific
 	ProjectID     string `mapstructure:"projectId" json:"projectId"`
 	GeoServiceURL string `mapstructure:"geoServiceUrl" json:"geoServiceUrl"`
-	RedisHost     string `mapstructure:"redisHost" json:"redisHost"`
-	RedisPassword string `mapstructure:"redisPassword" json:"redisPassword"`
+	RedisHost       string `mapstructure:"redisHost" json:"redisHost"`
+	RedisPassword   string `mapstructure:"redisPassword" json:"redisPassword"`
+	RedisSentinels  string `mapstructure:"redisSentinels" json:"redisSentinels"`
+	RedisMasterName string `mapstructure:"redisMasterName" json:"redisMasterName"`
 }
 
 type OpenPanelBulker struct {
@@ -74,6 +77,12 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 	if cfg.RedisHost == "" {
 		cfg.RedisHost = "openpanel-kv:6379"
+	}
+	if cfg.RedisSentinels == "" {
+		cfg.RedisSentinels = os.Getenv("REDIS_SENTINELS")
+	}
+	if cfg.RedisMasterName == "" {
+		cfg.RedisMasterName = os.Getenv("REDIS_MASTER_NAME")
 	}
 
 	// Connect to ClickHouse (default database first to create target DB)
@@ -129,12 +138,34 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 	}
 
 	// Connect to Redis
-	redisURL := fmt.Sprintf("redis://default:%s@%s", url.QueryEscape(cfg.RedisPassword), cfg.RedisHost)
-	redisOpts, err := redis.ParseURL(redisURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse redis URL: %v", err)
+	var rdb *redis.Client
+	if cfg.RedisSentinels != "" && cfg.RedisMasterName == "" {
+		return nil, fmt.Errorf("redisMasterName (or REDIS_MASTER_NAME env var) is required when redisSentinels is set")
 	}
-	rdb := redis.NewClient(redisOpts)
+	if cfg.RedisMasterName != "" && cfg.RedisSentinels == "" {
+		return nil, fmt.Errorf("redisSentinels (or REDIS_SENTINELS env var) is required when redisMasterName is set")
+	}
+	if cfg.RedisSentinels != "" {
+		rawSentinels := strings.Split(cfg.RedisSentinels, ",")
+		sentinels := make([]string, 0, len(rawSentinels))
+		for _, s := range rawSentinels {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				sentinels = append(sentinels, trimmed)
+			}
+		}
+		rdb = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:    cfg.RedisMasterName,
+			SentinelAddrs: sentinels,
+			Password:      cfg.RedisPassword,
+		})
+	} else {
+		redisURL := fmt.Sprintf("redis://default:%s@%s", url.QueryEscape(cfg.RedisPassword), cfg.RedisHost)
+		redisOpts, err := redis.ParseURL(redisURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse redis URL: %v", err)
+		}
+		rdb = redis.NewClient(redisOpts)
+	}
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to redis: %v", err)
 	}

@@ -1098,6 +1098,14 @@ export const coreDestinations: DestinationType<any>[] = [
         .default("redis://openpanel-kv:6379")
         .describe("Redis host:port for session and profile state"),
       redisPassword: z.string().optional().describe("Redis password"),
+      redisSentinels: z
+        .string()
+        .optional()
+        .describe("Comma-separated sentinel addresses (host:port) — if set, overrides redisHost"),
+      redisMasterName: z
+        .string()
+        .optional()
+        .describe("Redis Sentinel master name — required when redisSentinels is set"),
     }),
     credentialsUi: {
       password: {
