@@ -243,6 +243,31 @@ func getMap(m map[string]any, key string) map[string]any {
 	return map[string]any{}
 }
 
+// getTraits returns merged traits from top-level "traits" and "context.traits".
+// The Segment Kotlin SDK puts identify traits under context.traits,
+// while some other SDKs use top-level traits. Top-level wins on conflict.
+func getTraits(msg map[string]any) map[string]any {
+	ctxTraits := map[string]any{}
+	if ctx, ok := msg["context"]; ok {
+		if ctxMap, ok := ctx.(map[string]any); ok {
+			ctxTraits = getMap(ctxMap, "traits")
+		}
+	}
+	topTraits := getMap(msg, "traits")
+
+	if len(topTraits) == 0 && len(ctxTraits) == 0 {
+		return map[string]any{}
+	}
+	merged := make(map[string]any, len(ctxTraits)+len(topTraits))
+	for k, v := range ctxTraits {
+		merged[k] = v
+	}
+	for k, v := range topTraits {
+		merged[k] = v
+	}
+	return merged
+}
+
 func getString(m map[string]any, key, def string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok && s != "" {

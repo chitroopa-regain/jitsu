@@ -118,7 +118,7 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 			userID:      firstNonEmpty(msg, "userId", "user_id"),
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
 			context:     getMap(msg, "context"),
-			traits:      getMap(msg, "traits"),
+			traits:      getTraits(msg),
 			timestamp:   idAdj.UTC().Format(time.RFC3339Nano),
 		})
 

@@ -38,7 +38,7 @@ func (pm *ProfileManager) ProcessIdentify(msg map[string]any, profileRows *[]map
 		return
 	}
 
-	traits := getMap(msg, "traits")
+	traits := getTraits(msg)
 	ctx := getMap(msg, "context")
 	piAdj, _ := adjustTimestamp(msg)
 	timestamp := piAdj.UTC().Format(time.RFC3339Nano)
