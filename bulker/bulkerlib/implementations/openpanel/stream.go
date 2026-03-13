@@ -107,7 +107,7 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 			userID:      firstNonEmpty(msg, "userId", "user_id"),
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
 			context:     getMap(msg, "context"),
-			timestamp:   getString(msg, "timestamp", time.Now().UTC().Format(time.RFC3339Nano)),
+			timestamp:   adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
 		})
 
 	case "identify":
@@ -117,14 +117,14 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
 			context:     getMap(msg, "context"),
 			traits:      getMap(msg, "traits"),
-			timestamp:   getString(msg, "timestamp", time.Now().UTC().Format(time.RFC3339Nano)),
+			timestamp:   adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
 		})
 
 	case "alias":
 		s.aliasInputs = append(s.aliasInputs, aliasInput{
 			userID:     firstNonEmpty(msg, "userId", "user_id"),
 			previousID: firstNonEmpty(msg, "previousId", "previous_id", "anonymousId", "anonymous_id"),
-			timestamp:  getString(msg, "timestamp", time.Now().UTC().Format(time.RFC3339Nano)),
+			timestamp:  adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
 		})
 
 	default:
