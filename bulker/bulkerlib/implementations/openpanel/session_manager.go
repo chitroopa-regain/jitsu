@@ -3,6 +3,7 @@ package openpanel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -158,6 +159,181 @@ func (sm *SessionManager) sessionToRow(s *sessionState, sign int8) map[string]an
 	}
 }
 
+// ProcessEventsBatch processes all events through session management using Redis Pipeline.
+// Performs 2 Redis round-trips total (Pipeline GET + Pipeline SET/DEL) instead of 2-3 per event.
+// Returns error if Redis read pipeline fails (caller should abort batch so Kafka retries).
+func (sm *SessionManager) ProcessEventsBatch(events []map[string]any, sessionRows *[]map[string]any, syntheticEvents *[]map[string]any) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	// 1. Collect unique device_ids
+	deviceIDs := make(map[string]bool)
+	for _, event := range events {
+		did := stringVal(event, "device_id")
+		if did != "" {
+			deviceIDs[did] = true
+		}
+	}
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+
+	// 2. Pipeline GET: fetch all sessions in one round-trip
+	ctx := context.Background()
+	pipe := sm.rdb.Pipeline()
+	getCmds := make(map[string]*redis.StringCmd, len(deviceIDs))
+	for did := range deviceIDs {
+		getCmds[did] = pipe.Get(ctx, sm.sessionKey(did))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return fmt.Errorf("[session-mgr] pipeline GET failed: %w", err)
+	}
+
+	// 3. Build in-memory session map
+	sessions := make(map[string]*sessionState, len(deviceIDs))
+	for did, cmd := range getCmds {
+		raw, err := cmd.Bytes()
+		if err != nil {
+			if err != redis.Nil {
+				logging.Errorf("[session-mgr] pipeline GET %s failed: %v", sm.sessionKey(did), err)
+			}
+			continue
+		}
+		var s sessionState
+		if err := json.Unmarshal(raw, &s); err != nil {
+			logging.Errorf("[session-mgr] unmarshal session for device %s failed: %v", did, err)
+			continue
+		}
+		sessions[did] = &s
+	}
+
+	// 4. Process events sequentially (preserving order per device_id)
+	// Track which sessions need save/delete
+	modifiedSessions := make(map[string]bool)
+	deletedSessions := make(map[string]bool)
+
+	for _, event := range events {
+		deviceID := stringVal(event, "device_id")
+		if deviceID == "" {
+			continue
+		}
+
+		eventName := stringVal(event, "name")
+
+		if eventName == "Application Opened" {
+			// End existing session
+			if existing, ok := sessions[deviceID]; ok {
+				sm.endSessionInMemory(existing, deviceID, event, sessionRows, syntheticEvents)
+				delete(sessions, deviceID)
+				deletedSessions[deviceID] = true
+			}
+
+			// Create new session
+			session := sm.newSession(event)
+			session.EventCount = 1
+			sessions[deviceID] = session
+			modifiedSessions[deviceID] = true
+			delete(deletedSessions, deviceID)
+			event["session_id"] = session.ID
+
+			*sessionRows = append(*sessionRows, sm.sessionToRow(session, 1))
+			*syntheticEvents = append(*syntheticEvents, sm.syntheticEvent(event, "session_start", session.ID))
+			continue
+		}
+
+		if eventName == "Application Backgrounded" {
+			session, ok := sessions[deviceID]
+			if ok {
+				event["session_id"] = session.ID
+				session.EventCount++
+				session.EndedAt = formatTime(event["created_at"])
+				if p := stringVal(event, "path"); p != "" {
+					if session.EntryPath == "" {
+						session.EntryPath = p
+					}
+					session.ExitPath = p
+				}
+				sm.endSessionInMemory(session, deviceID, event, sessionRows, syntheticEvents)
+				delete(sessions, deviceID)
+				deletedSessions[deviceID] = true
+				delete(modifiedSessions, deviceID)
+			}
+			continue
+		}
+
+		// Regular event
+		session, ok := sessions[deviceID]
+		if !ok {
+			// Crash recovery: create new session
+			session = sm.newSession(event)
+			sessions[deviceID] = session
+			delete(deletedSessions, deviceID)
+			*sessionRows = append(*sessionRows, sm.sessionToRow(session, 1))
+		}
+
+		// Cancel previous version
+		*sessionRows = append(*sessionRows, sm.sessionToRow(session, -1))
+
+		session.EventCount++
+		if stringVal(event, "name") == "screen_view" {
+			session.ScreenViewCount++
+		}
+		session.EndedAt = formatTime(event["created_at"])
+		if p := stringVal(event, "path"); p != "" {
+			if session.EntryPath == "" {
+				session.EntryPath = p
+			}
+			session.ExitPath = p
+		}
+		if rev, ok := event["revenue"].(uint64); ok {
+			session.Revenue += float64(rev)
+		}
+		session.Version++
+
+		pid := stringVal(event, "profile_id")
+		did := stringVal(event, "device_id")
+		if pid != "" && pid != did {
+			session.ProfileID = pid
+		}
+
+		modifiedSessions[deviceID] = true
+		event["session_id"] = session.ID
+
+		*sessionRows = append(*sessionRows, sm.sessionToRow(session, 1))
+	}
+
+	// 5. Pipeline WRITE: batch all saves/deletes in one round-trip
+	writePipe := sm.rdb.Pipeline()
+	for did := range modifiedSessions {
+		session := sessions[did]
+		if session == nil {
+			continue
+		}
+		data, err := json.Marshal(session)
+		if err != nil {
+			logging.Errorf("[session-mgr] marshal session for device %s failed: %v", did, err)
+			continue
+		}
+		writePipe.SetEx(ctx, sm.sessionKey(did), data, sessionTTL)
+	}
+	for did := range deletedSessions {
+		writePipe.Del(ctx, sm.sessionKey(did))
+	}
+	if _, err := writePipe.Exec(ctx); err != nil && err != redis.Nil {
+		logging.Errorf("[session-mgr] pipeline WRITE failed: %v (session cache may be stale)", err)
+	}
+	return nil
+}
+
+// endSessionInMemory ends a session without Redis I/O (used by batch processing).
+func (sm *SessionManager) endSessionInMemory(session *sessionState, deviceID string, event map[string]any, sessionRows *[]map[string]any, syntheticEvents *[]map[string]any) {
+	*sessionRows = append(*sessionRows, sm.sessionToRow(session, -1))
+	session.Version++
+	*sessionRows = append(*sessionRows, sm.sessionToRow(session, 1))
+	*syntheticEvents = append(*syntheticEvents, sm.syntheticEvent(event, "session_end", session.ID))
+}
+
 // ProcessEvent processes an event through session management.
 // Mutates event["session_id"]. Appends session rows and synthetic events.
 func (sm *SessionManager) ProcessEvent(event map[string]any, sessionRows *[]map[string]any, syntheticEvents *[]map[string]any) {
@@ -196,10 +372,10 @@ func (sm *SessionManager) ProcessEvent(event map[string]any, sessionRows *[]map[
 			session.EventCount++
 			session.EndedAt = formatTime(event["created_at"])
 			if p := stringVal(event, "path"); p != "" {
-			if session.EntryPath == "" {
-				session.EntryPath = p
-			}
-			session.ExitPath = p
+				if session.EntryPath == "" {
+					session.EntryPath = p
+				}
+				session.ExitPath = p
 			}
 			sm.endSession(session, deviceID, event, sessionRows, syntheticEvents)
 		}
