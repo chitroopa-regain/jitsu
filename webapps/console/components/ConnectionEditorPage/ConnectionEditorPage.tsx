@@ -6,7 +6,7 @@ import { SomeZodObject, z } from "zod";
 import { ConfigurationObjectLinkDbModel } from "../../prisma/schema";
 import { useRouter } from "next/router";
 import { assertTrue, getLog, requireDefined } from "juava";
-import { Button, Input, InputNumber, Radio, Switch, Tooltip } from "antd";
+import { Button, Input, InputNumber, Radio, Select, Switch, Tooltip } from "antd";
 import { BaseBulkerConnectionOptions, getCoreDestinationType } from "../../lib/schema/destinations";
 import { confirmOp, copyTextToClipboard, feedbackError, feedbackSuccess } from "../../lib/ui";
 import FieldListEditorLayout, { EditorItem } from "../FieldListEditorLayout/FieldListEditorLayout";
@@ -147,19 +147,69 @@ export const SyncFrequencyEditor: EditorComponent<ConnectionOptionsType["frequen
   value,
   disabled,
   onChange,
-}) => (
-  <InputNumber
-    disabled={disabled}
-    value={value || 60}
-    size="small"
-    addonAfter={"Minutes"}
-    defaultValue={60}
-    className="w-36"
-    min={1}
-    max={60 * 24}
-    onChange={v => onChange(v as number)}
-  />
-);
+}) => {
+  const totalSeconds = value || 60;
+
+  const getDisplayUnit = (secs: number): "seconds" | "minutes" => {
+    if (secs >= 60 && secs % 60 === 0) return "minutes";
+    return "seconds";
+  };
+
+  const [unit, setUnit] = React.useState<"seconds" | "minutes">(getDisplayUnit(totalSeconds));
+
+  const toDisplayValue = (secs: number, u: string): number => {
+    if (u === "minutes") return secs / 60;
+    return secs;
+  };
+
+  const toSeconds = (displayVal: number, u: string): number => {
+    if (u === "minutes") return displayVal * 60;
+    return displayVal;
+  };
+
+  const displayValue = toDisplayValue(totalSeconds, unit);
+  const minValue = unit === "minutes" ? 1 : 5;
+  const maxValue = unit === "minutes" ? 1440 : 86400;
+
+  const unitSelector = (
+    <Select
+      disabled={disabled}
+      value={unit}
+      size="small"
+      className="w-24"
+      onChange={(newUnit: "seconds" | "minutes") => {
+        setUnit(newUnit);
+        const currentSecs = toSeconds(displayValue, unit);
+        const newMin = newUnit === "minutes" ? 60 : 5;
+        const newMax = 86400;
+        const clamped = Math.max(newMin, Math.min(newMax, currentSecs));
+        onChange(clamped);
+      }}
+      options={[
+        { value: "seconds", label: "Seconds" },
+        { value: "minutes", label: "Minutes" },
+      ]}
+    />
+  );
+
+  return (
+    <InputNumber
+      disabled={disabled}
+      value={displayValue}
+      size="small"
+      precision={0}
+      addonAfter={unitSelector}
+      className="w-48"
+      min={minValue}
+      max={maxValue}
+      onChange={v => {
+        if (v !== null) {
+          onChange(toSeconds(v as number, unit));
+        }
+      }}
+    />
+  );
+};
 
 type TextEditorComponent = EditorComponent<string, { className?: string; rows?: number }>;
 type SwitchComponentType = EditorComponent<boolean, { className?: string }>;
@@ -352,13 +402,20 @@ function ConnectionEditor({
     });
   }
   if (hasZodFields(connectionOptionsZodType, "mode") && connectionOptions.mode === "batch") {
+    // Legacy migration: if frequencyUnit is not "seconds", value is in old minutes format
+    const isLegacy = connectionOptions.frequencyUnit !== "seconds";
+    const frequencyInSeconds = connectionOptions.frequency
+      ? isLegacy
+        ? connectionOptions.frequency * 60
+        : connectionOptions.frequency
+      : 60;
     configItems.push({
       name: "Sync Frequency",
       component: (
         <SyncFrequencyEditor
           disabled={!canEdit}
-          value={connectionOptions.frequency || 60}
-          onChange={frequency => updateOptions({ frequency })}
+          value={frequencyInSeconds}
+          onChange={frequency => updateOptions({ frequency, frequencyUnit: "seconds" })}
         />
       ),
     });

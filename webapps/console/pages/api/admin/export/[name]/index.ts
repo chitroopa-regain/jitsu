@@ -177,7 +177,8 @@ const exports: Export[] = [
                 type: destinationType,
                 options: {
                   mode: "batch",
-                  frequency: 1,
+                  frequency: 60,
+                  frequencyUnit: "seconds",
                   deduplicate: true,
                 },
                 updatedAt: updatedAt,

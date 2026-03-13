@@ -110,7 +110,7 @@ Bulker buffers events and sends them to destination in batches if mode=`batch`. 
 either one of the following is true:
 
 * `batchSize` events are buffered
-* `frequency` minutes passed since the first event in the batch was buffered. (float))
+* `frequency` seconds passed since the first event in the batch was buffered.
 
 Batch settings that are default for all destinations may be set with following variables:
 

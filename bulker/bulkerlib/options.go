@@ -36,7 +36,7 @@ var (
 		ParseFunc:    utils.ParseInt,
 	}
 
-	// BatchFrequencyOption frequency of running batches in minutes
+	// BatchFrequencyOption frequency of running batches in seconds
 	BatchFrequencyOption = ImplementationOption[float64]{
 		Key:          "frequency",
 		DefaultValue: 0,
@@ -48,11 +48,19 @@ var (
 		DefaultValue: 0,
 		ParseFunc:    utils.ParseInt,
 	}
-	// RetryFrequencyOption frequency of running retry consumer in minutes
+	// RetryFrequencyOption frequency of running retry consumer in seconds
 	RetryFrequencyOption = ImplementationOption[float64]{
 		Key:          "retryFrequency",
 		DefaultValue: 0,
 		ParseFunc:    utils.ParseFloat,
+	}
+
+	// FrequencyUnitOption indicates the unit of frequency values.
+	// Empty or "minutes" = legacy format (multiply by 60), "seconds" = new format.
+	FrequencyUnitOption = ImplementationOption[string]{
+		Key:          "frequencyUnit",
+		DefaultValue: "",
+		ParseFunc:    utils.ParseString,
 	}
 
 	ModeOption = ImplementationOption[BulkMode]{Key: "mode", ParseFunc: func(serialized any) (BulkMode, error) {
@@ -190,6 +198,7 @@ func init() {
 	RegisterOption(&BatchFrequencyOption)
 	RegisterOption(&RetryFrequencyOption)
 	RegisterOption(&RetryBatchSizeOption)
+	RegisterOption(&FrequencyUnitOption)
 	RegisterOption(&PrimaryKeyOption)
 	RegisterOption(&DeduplicateOption)
 	RegisterOption(&PartitionIdOption)

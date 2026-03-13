@@ -292,7 +292,8 @@ export async function seedDemoConnections(): Promise<void> {
             timestampColumn: "timestamp",
             dataLayout: "segment-single-table",
             batchSize: 10000,
-            frequency: 5,
+            frequency: 300,
+            frequencyUnit: "seconds",
           },
         },
       });

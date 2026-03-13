@@ -238,7 +238,13 @@ func (tm *TopicManager) processMetadata(metadata *kafka.Metadata, nonEmptyTopics
 					}
 					tm.streamConsumers[destinationId] = append(tm.streamConsumers[destinationId], streamConsumer)
 				case "batch":
-					batchPeriodSec := utils.Nvl(int(bulker.BatchFrequencyOption.Get(destination.streamOptions)*60), tm.config.BatchRunnerPeriodSec)
+					freqF := bulker.BatchFrequencyOption.Get(destination.streamOptions)
+					freqUnit := bulker.FrequencyUnitOption.Get(destination.streamOptions)
+					// Legacy migration: if frequencyUnit is not "seconds", value is in minutes
+					if freqF > 0 && freqUnit != "seconds" {
+						freqF = freqF * 60
+					}
+					batchPeriodSec := utils.Nvl(int(freqF), tm.config.BatchRunnerPeriodSec)
 					batchConsumer, err := NewBatchConsumer(tm.repository, destinationId, batchPeriodSec, topic, tm.config, tm.kafkaConfig, tm.batchProducer, tm.eventsLogService, tm)
 					if err != nil {
 						topicsErrorsByMode[mode]++
@@ -256,7 +262,12 @@ func (tm *TopicManager) processMetadata(metadata *kafka.Metadata, nonEmptyTopics
 						tm.Debugf("Consumer for destination topic %s was scheduled with batch period %ds.", topic, batchConsumer.BatchPeriodSec())
 					}
 				case retryTopicMode:
-					retryPeriodSec := utils.Nvl(int(bulker.RetryFrequencyOption.Get(destination.streamOptions)*60), tm.config.BatchRunnerRetryPeriodSec)
+					retryFreqF := bulker.RetryFrequencyOption.Get(destination.streamOptions)
+					retryFreqUnit := bulker.FrequencyUnitOption.Get(destination.streamOptions)
+					if retryFreqF > 0 && retryFreqUnit != "seconds" {
+						retryFreqF = retryFreqF * 60
+					}
+					retryPeriodSec := utils.Nvl(int(retryFreqF), tm.config.BatchRunnerRetryPeriodSec)
 					var err error
 					if len(topicMetadata.Partitions) > 1 {
 						metrics.ConsumerErrors(topic, mode, destinationId, tableName, "invalid_partitions_count").Inc()
@@ -427,7 +438,12 @@ func (tm *TopicManager) changeListener(changes RepositoryChange) {
 	for _, changedDst := range changes.ChangedDestinations {
 		tm.Lock()
 		for _, consumer := range tm.batchConsumers[changedDst.Id()] {
-			batchPeriodSec := utils.Nvl(int(bulker.BatchFrequencyOption.Get(changedDst.streamOptions)*60), tm.config.BatchRunnerPeriodSec)
+			freqF := bulker.BatchFrequencyOption.Get(changedDst.streamOptions)
+			freqUnit := bulker.FrequencyUnitOption.Get(changedDst.streamOptions)
+			if freqF > 0 && freqUnit != "seconds" {
+				freqF = freqF * 60
+			}
+			batchPeriodSec := utils.Nvl(int(freqF), tm.config.BatchRunnerPeriodSec)
 			if consumer.BatchPeriodSec() != batchPeriodSec {
 				consumer.UpdateBatchPeriod(batchPeriodSec)
 				_, err := tm.cron.ReplaceBatchConsumer(changedDst.Id(), consumer)
@@ -441,7 +457,12 @@ func (tm *TopicManager) changeListener(changes RepositoryChange) {
 			}
 		}
 		for _, consumer := range tm.retryConsumers[changedDst.Id()] {
-			retryPeriodSec := utils.Nvl(int(bulker.RetryFrequencyOption.Get(changedDst.streamOptions)*60), tm.config.BatchRunnerRetryPeriodSec)
+			retryFreqF := bulker.RetryFrequencyOption.Get(changedDst.streamOptions)
+			retryFreqUnit := bulker.FrequencyUnitOption.Get(changedDst.streamOptions)
+			if retryFreqF > 0 && retryFreqUnit != "seconds" {
+				retryFreqF = retryFreqF * 60
+			}
+			retryPeriodSec := utils.Nvl(int(retryFreqF), tm.config.BatchRunnerRetryPeriodSec)
 			if consumer.BatchPeriodSec() != retryPeriodSec {
 				consumer.UpdateBatchPeriod(retryPeriodSec)
 				_, err := tm.cron.ReplaceBatchConsumer(changedDst.Id(), consumer)
