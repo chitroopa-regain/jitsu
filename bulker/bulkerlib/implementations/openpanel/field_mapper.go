@@ -50,27 +50,68 @@ func getNested(data map[string]any, path string) string {
 	return fmt.Sprint(val)
 }
 
-func parseTimestamp(raw any) time.Time {
+func tryParseTimestamp(raw any) (time.Time, bool) {
 	if raw == nil || raw == "" {
-		return time.Now().UTC()
+		return time.Time{}, false
 	}
 	switch v := raw.(type) {
 	case time.Time:
-		return v
+		return v, true
 	case string:
 		s := strings.Replace(v, "Z", "+00:00", 1)
 		t, err := time.Parse(time.RFC3339Nano, s)
 		if err != nil {
-			// Try without timezone
 			t, err = time.Parse("2006-01-02T15:04:05.999999999", s)
 			if err != nil {
-				return time.Now().UTC()
+				return time.Time{}, false
 			}
 		}
-		return t
+		return t, true
 	default:
+		return time.Time{}, false
+	}
+}
+
+const maxFutureSkew = 4 * time.Hour
+const maxPastSkew = 7 * 24 * time.Hour
+
+func adjustTimestamp(msg map[string]any) time.Time {
+	ts, tsOk := tryParseTimestamp(msg["timestamp"])
+
+	rawSentAt := msg["sentAt"]
+	if rawSentAt == nil {
+		rawSentAt = msg["sent_at"]
+	}
+	rawReceivedAt := msg["receivedAt"]
+	if rawReceivedAt == nil {
+		rawReceivedAt = msg["received_at"]
+	}
+
+	sentAt, sentOk := tryParseTimestamp(rawSentAt)
+	receivedAt, recvOk := tryParseTimestamp(rawReceivedAt)
+
+	if !tsOk {
+		if recvOk {
+			return receivedAt
+		}
 		return time.Now().UTC()
 	}
+
+	if sentOk && recvOk {
+		offset := receivedAt.Sub(sentAt)
+		if offset > -maxPastSkew && offset < maxFutureSkew {
+			return ts.Add(offset)
+		}
+	}
+
+	if recvOk {
+		skew := ts.Sub(receivedAt)
+		if skew > maxFutureSkew || skew < -maxPastSkew {
+			return receivedAt
+		}
+	}
+
+	return ts
 }
 
 // MapEvent transforms a Segment track/screen message into an OpenPanel event dict.
@@ -172,7 +213,7 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		"revenue":        revenue,
 		"duration":       uint64(0),
 		"properties":     cleanProps,
-		"created_at":     parseTimestamp(msg["timestamp"]),
+		"created_at":     adjustTimestamp(msg),
 		"country":        "\x00\x00",
 		"city":           "",
 		"region":         "",
