@@ -171,43 +171,41 @@ export const SyncFrequencyEditor: EditorComponent<ConnectionOptionsType["frequen
   const minValue = unit === "minutes" ? 1 : 5;
   const maxValue = unit === "minutes" ? 1440 : 86400;
 
-  const unitSelector = (
-    <Select
-      disabled={disabled}
-      value={unit}
-      size="small"
-      className="w-24"
-      onChange={(newUnit: "seconds" | "minutes") => {
-        setUnit(newUnit);
-        const currentSecs = toSeconds(displayValue, unit);
-        const newMin = newUnit === "minutes" ? 60 : 5;
-        const newMax = 86400;
-        const clamped = Math.max(newMin, Math.min(newMax, currentSecs));
-        onChange(clamped);
-      }}
-      options={[
-        { value: "seconds", label: "Seconds" },
-        { value: "minutes", label: "Minutes" },
-      ]}
-    />
-  );
-
   return (
-    <InputNumber
-      disabled={disabled}
-      value={displayValue}
-      size="small"
-      precision={0}
-      addonAfter={unitSelector}
-      className="w-48"
-      min={minValue}
-      max={maxValue}
-      onChange={v => {
-        if (v !== null) {
-          onChange(toSeconds(v as number, unit));
-        }
-      }}
-    />
+    <div className="flex items-center gap-2">
+      <InputNumber
+        disabled={disabled}
+        value={displayValue}
+        size="small"
+        precision={0}
+        className="w-24"
+        min={minValue}
+        max={maxValue}
+        onChange={v => {
+          if (v !== null) {
+            onChange(toSeconds(v as number, unit));
+          }
+        }}
+      />
+      <Select
+        disabled={disabled}
+        value={unit}
+        size="small"
+        style={{ width: 110 }}
+        onChange={(newUnit: "seconds" | "minutes") => {
+          setUnit(newUnit);
+          const currentSecs = toSeconds(displayValue, unit);
+          const newMin = newUnit === "minutes" ? 60 : 5;
+          const newMax = 86400;
+          const clamped = Math.max(newMin, Math.min(newMax, currentSecs));
+          onChange(clamped);
+        }}
+        options={[
+          { value: "seconds", label: "Seconds" },
+          { value: "minutes", label: "Minutes" },
+        ]}
+      />
+    </div>
   );
 };
 

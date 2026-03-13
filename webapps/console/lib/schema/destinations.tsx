@@ -130,7 +130,7 @@ export const BatchModeOptions = z.object({
   frequency: z
     .number()
     .int()
-    .min(5)
+    .min(1)
     .max(86400)
     .default(60)
     .nullish(),
@@ -1075,7 +1075,7 @@ export const coreDestinations: DestinationType<any>[] = [
         disabled: z.boolean().optional(),
         mode: z.enum(["batch"]).default("batch"),
         batchSize: z.number().min(1).default(10000),
-        frequency: z.number().int().min(5).max(86400).default(60).nullish(),
+        frequency: z.number().int().min(1).max(86400).default(60).nullish(),
         frequencyUnit: z.enum(["seconds", "minutes"]).nullish(),
       })
       .merge(FunctionsConnectionOptions),
