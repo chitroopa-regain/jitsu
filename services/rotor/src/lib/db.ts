@@ -156,7 +156,7 @@ const pgHelper: PgHelper = {
 };
 
 export const db = {
-  pgPool: getSingleton<Pool>("pg", createPg),
+  pgPool: getSingleton<Pool>("pg", createPg, { optional: !serverEnv.DATABASE_URL }),
   pgHelper: () => pgHelper,
 } as const;
 
