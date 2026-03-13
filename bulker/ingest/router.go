@@ -287,7 +287,7 @@ type BatchPayload struct {
 	WriteKey   string       `json:"writeKey"`
 }
 
-func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageBytes []byte, stream *StreamWithDestinations, sendResponse bool) (asyncDestinations []string, tagsDestinations []string, rError *appbase.RouterError) {
+func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageBytes []byte, stream *StreamWithDestinations, sendResponse bool, event types.Json) (asyncDestinations []string, tagsDestinations []string, rError *appbase.RouterError) {
 	var err error
 	if stream.BackupEnabled {
 		backupTopic := fmt.Sprintf("%sin.id.%s_backup.m.batch.t.backup", r.config.KafkaTopicPrefix, stream.Stream.WorkspaceId)
@@ -315,7 +315,7 @@ func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageByte
 		} else {
 			partition = r.partitionSelector.SelectPartition()
 		}
-		messageKey := uuid.New()
+		messageKey := extractPartitionKey(event)
 		err = r.producer.ProduceAsync(topic, messageKey, ingestMessageBytes, map[string]string{ConnectionIdsHeader: strings.Join(asyncDestinations, ",")}, partition, messageId, true)
 		if err != nil {
 			for _, id := range asyncDestinations {
@@ -328,6 +328,34 @@ func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageByte
 		}
 	}
 	return
+}
+
+// extractPartitionKey returns a deterministic key from the event for Kafka partitioning.
+// All events for the same user hash to the same partition, guaranteeing per-user ordering.
+func extractPartitionKey(event types.Json) string {
+	if event != nil {
+		// Standard analytics events (camelCase and snake_case)
+		if key := event.GetS("userId"); key != "" {
+			return key
+		}
+		if key := event.GetS("user_id"); key != "" {
+			return key
+		}
+		if key := event.GetS("anonymousId"); key != "" {
+			return key
+		}
+		if key := event.GetS("anonymous_id"); key != "" {
+			return key
+		}
+		// Classic Jitsu events: eventn_ctx is a nested object with user.id / user.anonymous_id
+		if key := event.GetPathS("eventn_ctx.user.id"); key != "" {
+			return key
+		}
+		if key := event.GetPathS("eventn_ctx.user.anonymous_id"); key != "" {
+			return key
+		}
+	}
+	return uuid.New()
 }
 
 func patchEvent(c *gin.Context, messageId string, ev types.Json, tp string, ingestType IngestType, analyticContext types.Json, defaultEventName string) error {

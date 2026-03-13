@@ -122,7 +122,7 @@ func (r *Router) IngestHandler(c *gin.Context) {
 		rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), true, true, true)
 		return
 	}
-	asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true)
+	asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message)
 	if rError != nil {
 		return
 	}

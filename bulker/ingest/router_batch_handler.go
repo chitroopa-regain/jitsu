@@ -195,7 +195,7 @@ func (r *Router) BatchHandler(c *gin.Context) {
 			if len(stream.AsynchronousDestinations) == 0 {
 				rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), false, true, true)
 			} else {
-				asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, false)
+				asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, false, event)
 			}
 		} else {
 			rError = r.ResponseError(c, http.StatusOK, "event error", false, err1, false, true, false)

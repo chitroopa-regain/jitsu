@@ -178,7 +178,7 @@ func (r *Router) ClassicHandler(c *gin.Context) {
 		} else if len(stream.AsynchronousDestinations) == 0 {
 			rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), true, true, true)
 		} else {
-			asyncDestinations, _, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true)
+			asyncDestinations, _, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message)
 		}
 		if len(ingestMessageBytes) > 0 {
 			_ = r.backupsLogger.Log(utils.DefaultString(metricsId, "UNKNOWN"), ingestMessageBytes)
