@@ -40,7 +40,8 @@ func (pm *ProfileManager) ProcessIdentify(msg map[string]any, profileRows *[]map
 
 	traits := getMap(msg, "traits")
 	ctx := getMap(msg, "context")
-	timestamp := adjustTimestamp(msg).UTC().Format(time.RFC3339Nano)
+	piAdj, _ := adjustTimestamp(msg)
+	timestamp := piAdj.UTC().Format(time.RFC3339Nano)
 
 	// Get existing profile from Redis cache
 	var existingProps map[string]string
@@ -138,7 +139,8 @@ func (pm *ProfileManager) EnsureProfile(msg map[string]any, country string, prof
 	}
 
 	ctx := getMap(msg, "context")
-	timestamp := adjustTimestamp(msg).UTC().Format(time.RFC3339Nano)
+	epAdj, _ := adjustTimestamp(msg)
+	timestamp := epAdj.UTC().Format(time.RFC3339Nano)
 
 	deviceProps := extractDeviceProps(ctx)
 	if country != "" && country != "\x00\x00" {
@@ -386,11 +388,12 @@ func (pm *ProfileManager) ProcessAlias(msg map[string]any, aliasRows *[]map[stri
 	previousID := firstNonEmpty(msg, "previousId", "previous_id", "anonymousId", "anonymous_id")
 
 	if userID != "" && previousID != "" {
+		paAdj, _ := adjustTimestamp(msg)
 		*aliasRows = append(*aliasRows, map[string]any{
 			"project_id": pm.projectID,
 			"profile_id": userID,
 			"alias":      previousID,
-			"created_at": adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
+			"created_at": paAdj.UTC().Format(time.RFC3339Nano),
 		})
 	}
 }

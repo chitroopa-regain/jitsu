@@ -32,6 +32,7 @@ var ddlStatements = []string{
     duration UInt64 CODEC(Delta(4), LZ4),
     properties Map(String, String) CODEC(ZSTD(3)),
     created_at DateTime64(3) CODEC(DoubleDelta, ZSTD(3)),
+    incorrect_event_timestamp Nullable(DateTime64(3)),
     country LowCardinality(FixedString(2)),
     city String,
     region LowCardinality(String),

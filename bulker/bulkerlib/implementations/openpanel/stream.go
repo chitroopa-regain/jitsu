@@ -102,29 +102,32 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 		s.trackIPs = append(s.trackIPs, ip)
 
 		// Extract minimal fields for profile processing
+		trackAdj, _ := adjustTimestamp(msg)
 		s.trackProfiles = append(s.trackProfiles, profileInput{
 			profileID:   firstNonEmpty(msg, "userId", "user_id", "anonymousId", "anonymous_id"),
 			userID:      firstNonEmpty(msg, "userId", "user_id"),
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
 			context:     getMap(msg, "context"),
-			timestamp:   adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
+			timestamp:   trackAdj.UTC().Format(time.RFC3339Nano),
 		})
 
 	case "identify":
+		idAdj, _ := adjustTimestamp(msg)
 		s.identifyInputs = append(s.identifyInputs, profileInput{
 			profileID:   firstNonEmpty(msg, "userId", "user_id", "anonymousId", "anonymous_id"),
 			userID:      firstNonEmpty(msg, "userId", "user_id"),
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
 			context:     getMap(msg, "context"),
 			traits:      getMap(msg, "traits"),
-			timestamp:   adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
+			timestamp:   idAdj.UTC().Format(time.RFC3339Nano),
 		})
 
 	case "alias":
+		aliasAdj, _ := adjustTimestamp(msg)
 		s.aliasInputs = append(s.aliasInputs, aliasInput{
 			userID:     firstNonEmpty(msg, "userId", "user_id"),
 			previousID: firstNonEmpty(msg, "previousId", "previous_id", "anonymousId", "anonymous_id"),
-			timestamp:  adjustTimestamp(msg).UTC().Format(time.RFC3339Nano),
+			timestamp:  aliasAdj.UTC().Format(time.RFC3339Nano),
 		})
 
 	default:

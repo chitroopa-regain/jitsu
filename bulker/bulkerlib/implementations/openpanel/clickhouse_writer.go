@@ -38,6 +38,7 @@ func WriteEvents(ctx context.Context, conn driver.Conn, database string, rows []
 			r["duration"],
 			r["properties"],
 			toTime(r["created_at"]),
+			toNullTime(r["incorrect_event_timestamp"]),
 			fixCountry(r["country"]),
 			r["city"],
 			r["region"],
@@ -213,6 +214,12 @@ func toNullFloat32(v any) *float32 {
 func toNullTime(v any) *time.Time {
 	switch t := v.(type) {
 	case time.Time:
+		utc := t.UTC()
+		return &utc
+	case *time.Time:
+		if t == nil {
+			return nil
+		}
 		utc := t.UTC()
 		return &utc
 	case nil:

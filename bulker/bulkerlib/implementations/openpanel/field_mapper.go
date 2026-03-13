@@ -72,10 +72,9 @@ func tryParseTimestamp(raw any) (time.Time, bool) {
 	}
 }
 
-const maxFutureSkew = 4 * time.Hour
 const maxPastSkew = 7 * 24 * time.Hour
 
-func adjustTimestamp(msg map[string]any) time.Time {
+func adjustTimestamp(msg map[string]any) (time.Time, *time.Time) {
 	ts, tsOk := tryParseTimestamp(msg["timestamp"])
 
 	rawSentAt := msg["sentAt"]
@@ -92,26 +91,26 @@ func adjustTimestamp(msg map[string]any) time.Time {
 
 	if !tsOk {
 		if recvOk {
-			return receivedAt
+			return receivedAt, nil
 		}
-		return time.Now().UTC()
+		return time.Now().UTC(), nil
 	}
 
+	result := ts
 	if sentOk && recvOk {
 		offset := receivedAt.Sub(sentAt)
-		if offset > -maxPastSkew && offset < maxFutureSkew {
-			return ts.Add(offset)
+		if offset > -maxPastSkew && offset < maxPastSkew {
+			result = ts.Add(offset)
 		}
 	}
 
 	if recvOk {
-		skew := ts.Sub(receivedAt)
-		if skew > maxFutureSkew || skew < -maxPastSkew {
-			return receivedAt
+		if result.After(receivedAt) || receivedAt.Sub(result) > maxPastSkew {
+			return receivedAt, &ts
 		}
 	}
 
-	return ts
+	return result, nil
 }
 
 // MapEvent transforms a Segment track/screen message into an OpenPanel event dict.
@@ -196,6 +195,8 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		ip = getNested(ctx, "ip")
 	}
 
+	adjusted, originalTs := adjustTimestamp(msg)
+
 	event := map[string]any{
 		"id":             uuid.New().String(),
 		"name":           name,
@@ -213,7 +214,8 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		"revenue":        revenue,
 		"duration":       uint64(0),
 		"properties":     cleanProps,
-		"created_at":     adjustTimestamp(msg),
+		"created_at":     adjusted,
+		"incorrect_event_timestamp": originalTs,
 		"country":        "\x00\x00",
 		"city":           "",
 		"region":         "",
