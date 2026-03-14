@@ -278,38 +278,20 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 	// --- PARTITION ASSIGNMENT (replaces hardcoded partition=0) ---
 	var assignedPartitions []kafka.TopicPartition
 
-	if bc.mode == "retry" && bc.topicId == bc.config.KafkaDestinationsRetryTopicName {
-		// Retry consumer: wait for explicit Assign() to take effect
-		for i := 0; i < 10; i++ {
-			ass, assErr := consumer.Assignment()
-			if assErr != nil || len(ass) != 1 {
-				time.Sleep(time.Second * time.Duration(i+1))
-			} else {
-				assignedPartitions = ass
-				break
-			}
+	// Wait for consumer group assignment via Subscribe (both batch and retry consumers)
+	for i := 0; i < 30; i++ {
+		ass, _ := consumer.Assignment()
+		if len(ass) > 0 {
+			assignedPartitions = ass
+			break
 		}
-		if len(assignedPartitions) == 0 {
-			bc.errorMetric("assignment_error")
-			return BatchCounters{}, bc.NewError("Failed to get retry consumer assignment")
-		}
-		bc.Infof("Assigned partition: %d", assignedPartitions[0].Partition)
-	} else {
-		// Batch consumer: wait for consumer group assignment via Subscribe
-		for i := 0; i < 30; i++ {
-			ass, _ := consumer.Assignment()
-			if len(ass) > 0 {
-				assignedPartitions = ass
-				break
-			}
-			consumer.Poll(1000) // triggers group join + rebalance
-		}
-		if len(assignedPartitions) == 0 {
-			bc.Debugf("No partitions assigned — standby mode")
-			return BatchCounters{}, nil
-		}
-		bc.Infof("Assigned %d partition(s): %v", len(assignedPartitions), partitionIds(assignedPartitions))
+		consumer.Poll(1000) // triggers group join + rebalance
 	}
+	if len(assignedPartitions) == 0 {
+		bc.Debugf("No partitions assigned — standby mode")
+		return BatchCounters{}, nil
+	}
+	bc.Infof("Assigned %d partition(s): %v", len(assignedPartitions), partitionIds(assignedPartitions))
 
 	// --- PER-PARTITION PROCESSING ---
 	for _, tp := range assignedPartitions {
