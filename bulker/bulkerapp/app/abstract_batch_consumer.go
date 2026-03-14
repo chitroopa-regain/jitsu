@@ -576,9 +576,10 @@ func (bc *AbstractBatchConsumer) initConsumer(force bool) (consumer *kafka.Consu
 			bc.Errorf("Failed to subscribe to topic: %v", err)
 			return nil, err
 		}
-		if bc.mode == "retry" && bc.topicId == bc.config.KafkaDestinationsRetryTopicName {
-			consumer.Assign([]kafka.TopicPartition{kafka.TopicPartition{Topic: &bc.topicId, Offset: kafka.OffsetStored, Partition: int32(bc.config.InstanceIndex)}})
-		}
+		// Removed manual Assign() for retry topic — let Kafka consumer group
+		// handle partition distribution automatically (same as batch consumer).
+		// The previous code forced partition=InstanceIndex which conflicted with
+		// the group-assigned partition, leaving some partitions unread.
 		bc.Infof("Consumer created: %s", consumer.String())
 		bc.consumer.Store(consumer)
 	}
