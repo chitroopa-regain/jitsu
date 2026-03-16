@@ -31,7 +31,7 @@ var systemKeys = map[string]bool{
 	"request_ip": true, "requestIp": true,
 	"sent_at": true, "sentAt": true,
 	"original_timestamp": true, "originalTimestamp": true,
-	"properties": true, "has_name": true,
+	"properties": true,
 }
 
 func getNested(data map[string]any, path string) string {
