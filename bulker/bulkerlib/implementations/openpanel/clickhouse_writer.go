@@ -51,6 +51,10 @@ func WriteEvents(ctx context.Context, conn driver.Conn, database string, rows []
 			r["device"],
 			r["brand"],
 			r["model"],
+			r["app_name"],
+			r["app_version"],
+			r["app_namespace"],
+			r["app_build"],
 			toNullTime(r["imported_at"]),
 		)
 		if err != nil {

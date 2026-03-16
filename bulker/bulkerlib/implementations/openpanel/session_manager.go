@@ -469,6 +469,10 @@ func (sm *SessionManager) syntheticEvent(sourceEvent map[string]any, name, sessi
 		"device":          stringVal(sourceEvent, "device"),
 		"brand":           stringVal(sourceEvent, "brand"),
 		"model":           stringVal(sourceEvent, "model"),
+		"app_name":        stringVal(sourceEvent, "app_name"),
+		"app_version":     stringVal(sourceEvent, "app_version"),
+		"app_namespace":   stringVal(sourceEvent, "app_namespace"),
+		"app_build":       stringVal(sourceEvent, "app_build"),
 		"imported_at":     nil,
 	}
 }

@@ -155,18 +155,6 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		}
 	}
 
-	// Inject app context fields
-	appFields := map[string]string{
-		"app_name": "app.name", "app_version": "app.version",
-		"app_namespace": "app.namespace", "app_build": "app.build",
-	}
-	for propKey, ctxPath := range appFields {
-		val := getNested(ctx, ctxPath)
-		if val != "" {
-			cleanProps[propKey] = strings.TrimSpace(val)
-		}
-	}
-
 	// Path for screen events
 	var path string
 	if eventType == "screen" {
@@ -228,6 +216,10 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		"device":         deviceType,
 		"brand":          getNested(ctx, "device.manufacturer"),
 		"model":          getNested(ctx, "device.model"),
+		"app_name":       strings.TrimSpace(getNested(ctx, "app.name")),
+		"app_version":    strings.TrimSpace(getNested(ctx, "app.version")),
+		"app_namespace":  strings.TrimSpace(getNested(ctx, "app.namespace")),
+		"app_build":      strings.TrimSpace(getNested(ctx, "app.build")),
 		"imported_at":    nil,
 	}
 
