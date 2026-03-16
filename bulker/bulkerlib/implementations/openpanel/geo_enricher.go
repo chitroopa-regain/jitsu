@@ -115,13 +115,12 @@ func (g *GeoEnricher) Enrich(event map[string]any, ip string) {
 	applyGeoResult(event, result)
 }
 
-// EnrichBatch performs geo enrichment for all events in a single HTTP call
-// to the Gunter batch endpoint. Unique uncached IPs are sent in one POST request.
-// Returns error if Gunter is unreachable (caller should abort batch so Kafka retries).
-// Individual IPs returning null is fine and not an error.
-func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
-	if g.serviceURL == "" || len(events) == 0 {
-		return nil
+// ResolveBatch looks up geo data for a batch of IPs using cache + Gunter batch endpoint.
+// Returns a map from IP to geoResult. Non-routable and empty IPs are silently skipped.
+// Returns error if Gunter is unreachable (caller decides whether to abort or continue).
+func (g *GeoEnricher) ResolveBatch(ips []string) (map[string]geoResult, error) {
+	if g.serviceURL == "" || len(ips) == 0 {
+		return nil, nil
 	}
 
 	now := time.Now()
@@ -138,13 +137,11 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 		}
 		seen[ip] = true
 
-		// Skip private/loopback IPs
 		parsed := net.ParseIP(ip)
 		if parsed == nil || parsed.IsLoopback() || parsed.IsPrivate() || parsed.IsUnspecified() {
 			continue
 		}
 
-		// Check cache
 		if cached, found := g.cache[ip]; found && now.Before(cached.expiresAt) {
 			cachedResults[ip] = cached
 		} else {
@@ -156,7 +153,6 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 	// Fetch uncached IPs from Gunter batch endpoint
 	freshResults := make(map[string]geoResult)
 	if len(uncachedIPs) > 0 {
-		// Chunk large batches to avoid huge payloads
 		const chunkSize = 5000
 		for i := 0; i < len(uncachedIPs); i += chunkSize {
 			end := i + chunkSize
@@ -167,7 +163,7 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 
 			body, err := json.Marshal(map[string]any{"ips": chunk})
 			if err != nil {
-				return fmt.Errorf("[geo-enricher] failed to marshal batch request: %w", err)
+				return nil, fmt.Errorf("[geo-enricher] failed to marshal batch request: %w", err)
 			}
 
 			url := fmt.Sprintf("%s/api/geo-lookup/batch?lang=en", g.serviceURL)
@@ -176,17 +172,17 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 				if resp != nil {
 					resp.Body.Close()
 				}
-				return fmt.Errorf("[geo-enricher] Gunter unreachable: %w", err)
+				return nil, fmt.Errorf("[geo-enricher] Gunter unreachable: %w", err)
 			}
 			if resp.StatusCode != 200 {
 				resp.Body.Close()
-				return fmt.Errorf("[geo-enricher] Gunter returned status %d", resp.StatusCode)
+				return nil, fmt.Errorf("[geo-enricher] Gunter returned status %d", resp.StatusCode)
 			}
 
 			var batchData map[string]any
 			if err := json.NewDecoder(resp.Body).Decode(&batchData); err != nil {
 				resp.Body.Close()
-				return fmt.Errorf("[geo-enricher] failed to decode Gunter response: %w", err)
+				return nil, fmt.Errorf("[geo-enricher] failed to decode Gunter response: %w", err)
 			}
 			resp.Body.Close()
 
@@ -208,7 +204,6 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 		for ip, result := range freshResults {
 			g.cache[ip] = result
 		}
-		// Periodic eviction
 		if now.Sub(g.lastEvictedAt) > cacheEvictInterval {
 			for k, v := range g.cache {
 				if now.After(v.expiresAt) {
@@ -220,21 +215,38 @@ func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 		g.mu.Unlock()
 	}
 
-	// Apply geo data to all events
+	// Merge cached + fresh
+	allResults := make(map[string]geoResult, len(cachedResults)+len(freshResults))
+	for ip, r := range cachedResults {
+		allResults[ip] = r
+	}
+	for ip, r := range freshResults {
+		allResults[ip] = r
+	}
+
+	logging.Infof("[geo-enricher] resolve: %d IPs, %d unique, %d cached, %d fetched",
+		len(ips), len(seen), len(cachedResults), len(freshResults))
+	return allResults, nil
+}
+
+// EnrichBatch performs geo enrichment for all events in a single batch.
+// Calls ResolveBatch for the lookup, then applies results to events in-place.
+// Returns error if Gunter is unreachable (caller should abort batch so Kafka retries).
+func (g *GeoEnricher) EnrichBatch(events []map[string]any, ips []string) error {
 	if len(events) != len(ips) {
 		return fmt.Errorf("[geo-enricher] events/ips length mismatch: %d vs %d", len(events), len(ips))
 	}
-	for i, event := range events {
-		ip := ips[i]
-		if result, ok := cachedResults[ip]; ok {
-			applyGeoResult(event, result)
-		} else if result, ok := freshResults[ip]; ok {
-			applyGeoResult(event, result)
-		}
+
+	allResults, err := g.ResolveBatch(ips)
+	if err != nil {
+		return err
 	}
 
-	logging.Infof("[geo-enricher] batch: %d events, %d unique IPs, %d cached, %d fetched",
-		len(events), len(seen), len(cachedResults), len(freshResults))
+	for i, ip := range ips {
+		if result, ok := allResults[ip]; ok {
+			applyGeoResult(events[i], result)
+		}
+	}
 	return nil
 }
 

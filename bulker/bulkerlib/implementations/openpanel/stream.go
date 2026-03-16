@@ -18,6 +18,8 @@ type profileInput struct {
 	anonymousID string
 	context     map[string]any // for extractDeviceProps()
 	traits      map[string]any // only populated for identify events
+	ip          string         // for geo enrichment of identify profiles
+	country     string         // populated after ResolveBatch
 	timestamp   string
 }
 
@@ -113,12 +115,18 @@ func (s *OpenPanelStream) consumeMap(msg map[string]any) (bulkerlib.State, types
 
 	case "identify":
 		idAdj, _ := adjustTimestamp(msg)
+		idCtx := getMap(msg, "context")
+		idIP := firstNonEmpty(msg, "requestIp", "request_ip")
+		if idIP == "" {
+			idIP = getNested(idCtx, "ip")
+		}
 		s.identifyInputs = append(s.identifyInputs, profileInput{
 			profileID:   firstNonEmpty(msg, "userId", "user_id", "anonymousId", "anonymous_id"),
 			userID:      firstNonEmpty(msg, "userId", "user_id"),
 			anonymousID: firstNonEmpty(msg, "anonymousId", "anonymous_id"),
-			context:     getMap(msg, "context"),
+			context:     idCtx,
 			traits:      getTraits(msg),
+			ip:          idIP,
 			timestamp:   idAdj.UTC().Format(time.RFC3339Nano),
 		})
 
@@ -176,6 +184,24 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 	s.eventsBuf = append(s.eventsBuf, s.trackEvents...)
 
 	// Phase 3: Batch profile processing (2-4 Redis round-trips via Pipeline)
+	// Resolve geo for identify IPs so profiles get country at creation time.
+	// Non-fatal: if Gunter fails here, profiles still get created without country.
+	identifyIPs := make([]string, len(s.identifyInputs))
+	for i, input := range s.identifyInputs {
+		identifyIPs[i] = input.ip
+	}
+	identifyGeo, geoErr := s.bulker.geoEnrich.ResolveBatch(identifyIPs)
+	if geoErr != nil {
+		logging.Warnf("[openpanel] identify geo resolution failed (non-fatal): %v", geoErr)
+	}
+	if identifyGeo != nil {
+		for i := range s.identifyInputs {
+			if result, ok := identifyGeo[s.identifyInputs[i].ip]; ok && result.country != "" {
+				s.identifyInputs[i].country = result.country
+			}
+		}
+	}
+
 	// Process identify events FIRST so their richer profiles are in Redis before
 	// EnsureProfilesBatch runs — otherwise default track profiles could overwrite
 	// identify traits in ClickHouse's ReplacingMergeTree.

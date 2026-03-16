@@ -338,6 +338,11 @@ func (pm *ProfileManager) ProcessIdentifyBatch(inputs []profileInput, profileRow
 			}
 		}
 
+		// Set country from geo enrichment (source of truth from current IP)
+		if input.country != "" {
+			newProps["country"] = input.country
+		}
+
 		firstName := getString(input.traits, "first_name", getString(input.traits, "firstName", ""))
 		if firstName == "" {
 			firstName = input.profileID
