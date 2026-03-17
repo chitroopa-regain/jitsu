@@ -127,13 +127,7 @@ export type CloudDestinationsConnectionOptions = z.infer<typeof CloudDestination
 //Auxiliary type for batch mode options
 export const BatchModeOptions = z.object({
   batchSize: z.number().min(1).default(10000),
-  frequency: z
-    .number()
-    .int()
-    .min(1)
-    .max(86400)
-    .default(60)
-    .nullish(),
+  frequency: z.number().int().min(1).max(86400).default(60).nullish(),
   frequencyUnit: z.enum(["seconds", "minutes"]).nullish(),
 });
 export type BatchModeOptions = z.infer<typeof BatchModeOptions>;
