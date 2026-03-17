@@ -119,7 +119,7 @@ export function buildFunctionChain(
         bulkerEndpoint: bulkerBase,
         destinationId: conId,
         authToken: bulkerAuthKey,
-        dataLayout: connectionData.dataLayout ?? "segment-single-table",
+        dataLayout: connectionData.dataLayout ?? (connection.type === "openpanel" ? "passthrough" : "segment-single-table"),
         keepOriginalNames: connectionData.keepOriginalNames,
       },
     };
