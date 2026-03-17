@@ -147,12 +147,14 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 		}
 	}
 
-	// Clean properties: strip internal keys, cast to string
+	// Clean properties: trim key whitespace, strip internal keys, cast to string
 	cleanProps := make(map[string]string)
 	for k, v := range mergedProps {
-		if !stripKeys[k] {
-			cleanProps[k] = fmt.Sprint(v)
+		trimmed := strings.TrimSpace(k)
+		if trimmed == "" || stripKeys[trimmed] {
+			continue
 		}
+		cleanProps[trimmed] = fmt.Sprint(v)
 	}
 
 	// Path for screen events
