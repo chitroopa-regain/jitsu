@@ -17,7 +17,6 @@ var stripKeys = map[string]bool{
 	"distinct_id":               true,
 	"log_once_a_day":            true,
 	"is_first_event_of_the_day": true,
-	"cycle_number":              true,
 }
 
 // systemKeys are top-level Segment/Jitsu keys that aren't custom properties.
