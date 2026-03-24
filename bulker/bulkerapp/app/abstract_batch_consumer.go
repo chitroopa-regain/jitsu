@@ -293,6 +293,16 @@ func (bc *AbstractBatchConsumer) ConsumeAll() (counters BatchCounters, err error
 	}
 	bc.Infof("Assigned %d partition(s): %v", len(assignedPartitions), partitionIds(assignedPartitions))
 
+	// For single-partition assignments, resume the partition at Kafka level.
+	// Multi-partition setups are handled by the per-partition Pause/Resume loop below.
+	// Without this, a single-partition consumer stays Kafka-paused after pauseOrSuspend()
+	// because the multi-partition branch (len > 1) never fires.
+	if len(assignedPartitions) == 1 {
+		if err := consumer.Resume(assignedPartitions); err != nil {
+			bc.Errorf("Failed to resume assigned partition: %v", err)
+		}
+	}
+
 	// --- PER-PARTITION PROCESSING ---
 	for _, tp := range assignedPartitions {
 		if bc.retired.Load() {
