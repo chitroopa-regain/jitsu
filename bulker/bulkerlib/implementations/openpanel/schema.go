@@ -139,7 +139,21 @@ ENGINE = MergeTree
 ORDER BY (project_id, profile_id, alias, created_at)
 SETTINGS index_granularity = 8192`,
 
-	// 5. session_replay_chunks (empty — required for dashboard LEFT JOIN)
+	// 5. profile_traits — user-defined properties from identify calls (one row per trait)
+	`CREATE TABLE IF NOT EXISTS {{database}}.profile_traits
+(
+    project_id String CODEC(ZSTD(3)),
+    profile_id String CODEC(ZSTD(3)),
+    key String CODEC(ZSTD(3)),
+    value String CODEC(ZSTD(3)),
+    updated_at DateTime64(3) CODEC(Delta(4), LZ4),
+    INDEX idx_profile_id profile_id TYPE bloom_filter GRANULARITY 1
+)
+ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (project_id, key, profile_id)
+SETTINGS index_granularity = 8192`,
+
+	// 6. session_replay_chunks (empty — required for dashboard LEFT JOIN)
 	`CREATE TABLE IF NOT EXISTS {{database}}.session_replay_chunks
 (
     project_id String CODEC(ZSTD(3)),

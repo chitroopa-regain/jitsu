@@ -47,6 +47,7 @@ type OpenPanelStream struct {
 	eventsBuf   []map[string]any
 	sessionsBuf []map[string]any
 	profilesBuf []map[string]any
+	traitsBuf   []map[string]any
 	aliasesBuf  []map[string]any
 
 	state     bulkerlib.State
@@ -156,6 +157,7 @@ func (s *OpenPanelStream) Abort(ctx context.Context) bulkerlib.State {
 	s.eventsBuf = nil
 	s.sessionsBuf = nil
 	s.profilesBuf = nil
+	s.traitsBuf = nil
 	s.aliasesBuf = nil
 	return s.state
 }
@@ -205,7 +207,7 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 	// Process identify events FIRST so their richer profiles are in Redis before
 	// EnsureProfilesBatch runs — otherwise default track profiles could overwrite
 	// identify traits in ClickHouse's ReplacingMergeTree.
-	identifiedIDs, err := s.bulker.profileMgr.ProcessIdentifyBatch(s.identifyInputs, &s.profilesBuf, &s.aliasesBuf)
+	identifiedIDs, err := s.bulker.profileMgr.ProcessIdentifyBatch(s.identifyInputs, &s.profilesBuf, &s.traitsBuf, &s.aliasesBuf)
 	if err != nil {
 		s.state.SetError(err)
 		s.state.Status = bulkerlib.Failed
@@ -243,6 +245,11 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 		return s.state, err
 	}
 	if err := WriteProfiles(ctx, s.bulker.chConn, db, s.profilesBuf); err != nil {
+		s.state.SetError(err)
+		s.state.Status = bulkerlib.Failed
+		return s.state, err
+	}
+	if err := WriteTraits(ctx, s.bulker.chConn, db, s.traitsBuf); err != nil {
 		s.state.SetError(err)
 		s.state.Status = bulkerlib.Failed
 		return s.state, err

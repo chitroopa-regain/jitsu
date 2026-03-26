@@ -155,6 +155,33 @@ func WriteProfiles(ctx context.Context, conn driver.Conn, database string, rows 
 	return batch.Send()
 }
 
+// WriteTraits batch-inserts trait rows into the profile_traits table.
+func WriteTraits(ctx context.Context, conn driver.Conn, database string, rows []map[string]any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	batch, err := conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s.profile_traits", database))
+	if err != nil {
+		return fmt.Errorf("prepare traits batch: %w", err)
+	}
+
+	for _, r := range rows {
+		err = batch.Append(
+			r["project_id"],
+			r["profile_id"],
+			r["key"],
+			r["value"],
+			toTime(r["updated_at"]),
+		)
+		if err != nil {
+			return fmt.Errorf("append trait row: %w", err)
+		}
+	}
+
+	return batch.Send()
+}
+
 // WriteAliases batch-inserts alias rows into the profile_aliases table.
 func WriteAliases(ctx context.Context, conn driver.Conn, database string, rows []map[string]any) error {
 	if len(rows) == 0 {

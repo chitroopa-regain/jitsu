@@ -13,6 +13,24 @@ import (
 
 const profileTTL = 24 * time.Hour
 
+// deviceGeoKeys are properties extracted from event context (device/geo info).
+// These stay in the profiles.properties Map. Everything else from identify traits
+// goes to the profile_traits table.
+var deviceGeoKeys = map[string]bool{
+	"os": true, "os_version": true, "device": true, "brand": true, "model": true,
+	"country": true, "region": true, "city": true,
+	"longitude": true, "latitude": true,
+	"browser": true, "browser_version": true,
+	"display_height": true, "display_width": true, "display_inches": true,
+	"total_ram": true, "total_disk_space": true,
+}
+
+// standardFields are top-level profile columns, not stored in properties/traits.
+var standardFields = map[string]bool{
+	"first_name": true, "last_name": true, "email": true, "avatar": true,
+	"firstName": true, "lastName": true,
+}
+
 type ProfileManager struct {
 	rdb       *redis.Client
 	projectID string
@@ -259,8 +277,9 @@ func (pm *ProfileManager) EnsureProfilesBatch(inputs []profileInput, enrichedEve
 
 // ProcessIdentifyBatch processes all identify events via Redis Pipeline.
 // 2 Redis round-trips total (Pipeline GET + Pipeline SETEX).
+// User traits are written to traitRows (for profile_traits table), device/geo stay in profileRows.
 // Returns error if Redis read pipeline fails (caller should abort batch so Kafka retries).
-func (pm *ProfileManager) ProcessIdentifyBatch(inputs []profileInput, profileRows *[]map[string]any, aliasRows *[]map[string]any) (map[string]bool, error) {
+func (pm *ProfileManager) ProcessIdentifyBatch(inputs []profileInput, profileRows *[]map[string]any, traitRows *[]map[string]any, aliasRows *[]map[string]any) (map[string]bool, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
@@ -320,27 +339,34 @@ func (pm *ProfileManager) ProcessIdentifyBatch(inputs []profileInput, profileRow
 
 		deviceProps := extractDeviceProps(input.context)
 
+		// Build profiles.properties Map with ONLY device/geo props (no user traits)
 		newProps := make(map[string]string)
 		for k, v := range existingProps {
-			newProps[k] = v
+			if deviceGeoKeys[k] {
+				newProps[k] = v
+			}
 		}
 		for k, v := range deviceProps {
 			newProps[k] = v
 		}
 
-		standardFields := map[string]bool{
-			"first_name": true, "last_name": true, "email": true, "avatar": true,
-			"firstName": true, "lastName": true,
-		}
-		for k, v := range input.traits {
-			if !standardFields[k] {
-				newProps[k] = fmt.Sprint(v)
-			}
-		}
-
 		// Set country from geo enrichment (source of truth from current IP)
 		if input.country != "" {
 			newProps["country"] = input.country
+		}
+
+		// Extract user traits → profile_traits table (one row per trait)
+		for k, v := range input.traits {
+			if standardFields[k] || deviceGeoKeys[k] || v == nil {
+				continue
+			}
+			*traitRows = append(*traitRows, map[string]any{
+				"project_id": pm.projectID,
+				"profile_id": input.profileID,
+				"key":        k,
+				"value":      fmt.Sprint(v),
+				"updated_at": input.timestamp,
+			})
 		}
 
 		firstName := getString(input.traits, "first_name", getString(input.traits, "firstName", ""))
