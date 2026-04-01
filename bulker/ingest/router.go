@@ -287,7 +287,7 @@ type BatchPayload struct {
 	WriteKey   string       `json:"writeKey"`
 }
 
-func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageBytes []byte, stream *StreamWithDestinations, sendResponse bool, event types.Json) (asyncDestinations []string, tagsDestinations []string, rError *appbase.RouterError) {
+func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageBytes []byte, stream *StreamWithDestinations, sendResponse bool, event types.Json, deliveryChan ...chan kafka.Event) (asyncDestinations []string, tagsDestinations []string, rError *appbase.RouterError) {
 	var err error
 	if stream.BackupEnabled {
 		backupTopic := fmt.Sprintf("%sin.id.%s_backup.m.batch.t.backup", r.config.KafkaTopicPrefix, stream.Stream.WorkspaceId)
@@ -316,7 +316,11 @@ func (r *Router) sendToRotor(c *gin.Context, messageId string, ingestMessageByte
 			partition = r.partitionSelector.SelectPartition()
 		}
 		messageKey := extractPartitionKey(event)
-		err = r.producer.ProduceAsync(topic, messageKey, ingestMessageBytes, map[string]string{ConnectionIdsHeader: strings.Join(asyncDestinations, ",")}, partition, messageId, true)
+		if len(deliveryChan) > 0 && deliveryChan[0] != nil {
+			err = r.producer.ProduceAsyncWithChannel(topic, messageKey, ingestMessageBytes, map[string]string{ConnectionIdsHeader: strings.Join(asyncDestinations, ",")}, partition, messageId, true, deliveryChan[0])
+		} else {
+			err = r.producer.ProduceAsync(topic, messageKey, ingestMessageBytes, map[string]string{ConnectionIdsHeader: strings.Join(asyncDestinations, ",")}, partition, messageId, true)
+		}
 		if err != nil {
 			for _, id := range asyncDestinations {
 				IngestedMessages(id, "error", "producer error").Inc()

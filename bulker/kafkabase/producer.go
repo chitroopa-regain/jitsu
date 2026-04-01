@@ -209,6 +209,75 @@ func (p *Producer) ProduceSync(topic string, event kafka.Message) error {
 	return nil
 }
 
+// ProduceAsyncWithChannel is like ProduceAsync but sends the delivery report to the provided channel
+// instead of the producer's internal event channel. This allows per-batch delivery tracking.
+func (p *Producer) ProduceAsyncWithChannel(topic string, messageKey string, event []byte, headers map[string]string, partition int32, messageId string, failover bool, deliveryChan chan kafka.Event) error {
+	if p.isClosed() {
+		return p.NewError("producer is closed")
+	}
+	var key []byte
+	if messageKey != "" {
+		key = []byte(messageKey)
+	}
+	err := p.producer.Produce(&kafka.Message{
+		Key: key,
+		Headers: utils.MapToSlice(headers, func(k string, v string) kafka.Header {
+			return kafka.Header{Key: k, Value: []byte(v)}
+		}),
+		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: partition},
+		Value:          event,
+		Opaque: map[string]any{
+			MessageIdHeader: messageId,
+			"failover":      failover,
+		},
+	}, deliveryChan)
+	if err != nil {
+		ProducerMessages(p.metricsLabelFunc(topic, "error", KafkaErrorCode(err))).Inc()
+	} else {
+		ProducerMessages(p.metricsLabelFunc(topic, "produced", "")).Inc()
+	}
+	return err
+}
+
+// WaitForDeliveries waits for N delivery reports from the channel.
+// Returns nil if all delivered, error on first failure or timeout.
+// Mirrors the same failover/error handling as the normal delivery-report event loop.
+func (p *Producer) WaitForDeliveries(deliveryChan chan kafka.Event, count int, timeoutMs int) error {
+	until := time.After(time.Duration(timeoutMs) * time.Millisecond)
+	for i := 0; i < count; i++ {
+		select {
+		case e := <-deliveryChan:
+			m := e.(*kafka.Message)
+			if m.TopicPartition.Error != nil {
+				messageId := ""
+				failover := false
+				if opaque, ok := m.Opaque.(map[string]any); ok {
+					if mid, ok := opaque[MessageIdHeader].(string); ok {
+						messageId = mid
+					}
+					if fo, ok := opaque["failover"].(bool); ok {
+						failover = fo
+					}
+				}
+				ProducerMessages(p.metricsLabelFunc(*m.TopicPartition.Topic, "error", KafkaErrorCode(m.TopicPartition.Error))).Inc()
+				p.Errorf("Batch delivery failed for message %s to topic %s: %v", messageId, *m.TopicPartition.Topic, m.TopicPartition.Error)
+				// Failover logging — same as normal delivery-report event loop
+				if failover && p.failoverLogger != nil && p.failoverLogger.ShouldLog(m.TopicPartition.Error) {
+					if err := p.failoverLogger.LogPayload(m.Value); err != nil {
+						p.Errorf("Failed to log message to failover logger: %v", err)
+					}
+				}
+				return m.TopicPartition.Error
+			}
+			ProducerMessages(p.metricsLabelFunc(*m.TopicPartition.Topic, "delivered", "")).Inc()
+		case <-until:
+			ProducerMessages(p.metricsLabelFunc("", "error", "batch_sync_delivery_timeout")).Inc()
+			return fmt.Errorf("timeout waiting for delivery of %d/%d messages", count-i, count)
+		}
+	}
+	return nil
+}
+
 // ProduceAsync TODO: transactional delivery?
 // produces messages to kafka
 func (p *Producer) ProduceAsync(topic string, messageKey string, event []byte, headers map[string]string, partition int32, messageId string, failover bool) error {

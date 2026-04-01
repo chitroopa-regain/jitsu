@@ -122,9 +122,19 @@ func (r *Router) IngestHandler(c *gin.Context) {
 		rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), true, true, true)
 		return
 	}
-	asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message)
+	// Per-request delivery channel for Kafka ack before HTTP response
+	deliveryChan := make(chan kafka2.Event, 1)
+	asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message, deliveryChan)
 	if rError != nil {
 		return
+	}
+	// Wait for Kafka ack before responding — ensures zero event loss
+	if len(asyncDestinations) > 0 {
+		if err := r.producer.WaitForDeliveries(deliveryChan, 1, 10000); err != nil {
+			IngestHandlerRequests(domain, "error", "delivery_timeout").Inc()
+			rError = r.ResponseError(c, http.StatusServiceUnavailable, "delivery error", true, err, true, true, false)
+			return
+		}
 	}
 	if len(tagsDestinations) == 0 || s2sEndpoint {
 		c.JSON(http.StatusOK, gin.H{"ok": true})

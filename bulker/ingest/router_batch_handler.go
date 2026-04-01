@@ -181,6 +181,9 @@ func (r *Router) BatchHandler(c *gin.Context) {
 
 	okEvents := 0
 	errors := make([]string, 0)
+	// Per-batch delivery channel for request-scoped Kafka ack
+	deliveryChan := make(chan kafka2.Event, len(batch))
+	producedCount := 0
 	for _, event := range batch {
 		messageId := event.GetS("messageId")
 		if messageId == "" {
@@ -195,7 +198,10 @@ func (r *Router) BatchHandler(c *gin.Context) {
 			if len(stream.AsynchronousDestinations) == 0 {
 				rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), false, true, true)
 			} else {
-				asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, false, event)
+				asyncDestinations, tagsDestinations, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, false, event, deliveryChan)
+				if rError == nil && len(asyncDestinations) > 0 {
+					producedCount++
+				}
 			}
 		} else {
 			rError = r.ResponseError(c, http.StatusOK, "event error", false, err1, false, true, false)
@@ -213,14 +219,13 @@ func (r *Router) BatchHandler(c *gin.Context) {
 			obj := map[string]any{"body": string(ingestMessageBytes), "asyncDestinations": asyncDestinations, "tags": tagsDestinations}
 			if len(asyncDestinations) > 0 || len(tagsDestinations) > 0 {
 				okEvents++
-				obj["status"] = "SUCCESS"
+				obj["status"] = "ENQUEUED"
 			} else {
 				obj["status"] = "SKIPPED"
 				obj["error"] = ErrNoDst
 				errors = append(errors, fmt.Sprintf("Message ID: %s: %v", messageId, rError.PublicError))
 			}
 			r.eventsLogService.PostAsync(&eventslog.ActorEvent{EventType: eventslog.EventTypeIncoming, Level: eventslog.LevelInfo, ActorId: metricsId, Event: obj})
-			IngestHandlerRequests(domain, "success", "").Inc()
 		}
 	}
 	processedEvents := len(batch)
@@ -243,11 +248,27 @@ func (r *Router) BatchHandler(c *gin.Context) {
 		response["errors"] = errors
 	}
 
+	// Wait for Kafka to acknowledge all events produced in THIS batch (request-scoped).
+	// Per-batch delivery channel — only tracks this request's messages, not other goroutines'.
+	// On timeout/error: return 503. SDK retry safety requires downstream idempotency by messageId
+	// (e.g., ClickHouse ReplacingMergeTree). Destinations without messageId-based dedup may see
+	// duplicates on retry if some events in the batch were already delivered before the error.
+	if producedCount > 0 {
+		if err := r.producer.WaitForDeliveries(deliveryChan, producedCount, 10000); err != nil {
+			IngestHandlerRequests(domain, "error", "delivery_timeout").Inc()
+			IngestedMessagesReceived(metricsId, "errors").Add(float64(producedCount))
+			response["ok"] = false
+			response["delivery_error"] = err.Error()
+			c.JSON(http.StatusServiceUnavailable, response)
+			return
+		}
+	}
+
 	if len(errors) > 0 {
-		// Return 503 so the SDK retries the batch. ClickHouse ReplacingMergeTree
-		// deduplicates by messageId on merge, so retried events are safe.
 		c.JSON(http.StatusServiceUnavailable, response)
 	} else {
+		// Emit success metrics only after Kafka delivery is confirmed
+		IngestHandlerRequests(domain, "success", "").Add(float64(okEvents))
 		c.JSON(http.StatusOK, response)
 	}
 }

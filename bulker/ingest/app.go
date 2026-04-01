@@ -56,6 +56,8 @@ func (a *Context) InitContext(settings *appbase.AppSettings) error {
 		"linger.ms":                    a.config.ProducerLingerMs,
 		"compression.type":             a.config.KafkaTopicCompression,
 		"delivery.timeout.ms":          a.config.ProducerDeliveryTimeoutMs,
+		"acks":                         "all",
+		"enable.idempotence":           true,
 	}, *a.kafkaConfig))
 	var partitionSelector kafkabase.PartitionSelector = &kafkabase.DummyPartitionSelector{}
 	if a.config.WeightedPartitionSelectorLagThreshold > 0 {

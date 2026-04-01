@@ -161,6 +161,8 @@ func (r *Router) ClassicHandler(c *gin.Context) {
 		}
 		messages = append(messages, message)
 	}
+	deliveryChan := make(chan kafka2.Event, len(messages))
+	producedCount := 0
 	for _, message := range messages {
 		messageId := message.GetS("eventn_ctx_event_id")
 		if messageId == "" {
@@ -178,7 +180,10 @@ func (r *Router) ClassicHandler(c *gin.Context) {
 		} else if len(stream.AsynchronousDestinations) == 0 {
 			rError = r.ResponseError(c, http.StatusOK, ErrNoDst, false, fmt.Errorf("%s", stream.Stream.Id), true, true, true)
 		} else {
-			asyncDestinations, _, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message)
+			asyncDestinations, _, rError = r.sendToRotor(c, messageId, ingestMessageBytes, stream, true, message, deliveryChan)
+			if rError == nil && len(asyncDestinations) > 0 {
+				producedCount++
+			}
 		}
 		if len(ingestMessageBytes) > 0 {
 			_ = r.backupsLogger.Log(utils.DefaultString(metricsId, "UNKNOWN"), ingestMessageBytes)
@@ -191,15 +196,24 @@ func (r *Router) ClassicHandler(c *gin.Context) {
 		} else {
 			obj := map[string]any{"body": string(ingestMessageBytes), "asyncDestinations": asyncDestinations}
 			if len(asyncDestinations) > 0 {
-				obj["status"] = "SUCCESS"
+				obj["status"] = "ENQUEUED"
 			} else {
 				obj["status"] = "SKIPPED"
 				obj["error"] = ErrNoDst
 			}
 			r.eventsLogService.PostAsync(&eventslog.ActorEvent{EventType: eventslog.EventTypeIncoming, Level: eventslog.LevelInfo, ActorId: metricsId, Event: obj})
-			IngestHandlerRequests(domain, "success", "").Inc()
 		}
 	}
+	// Wait for Kafka ack before responding
+	if producedCount > 0 {
+		if err := r.producer.WaitForDeliveries(deliveryChan, producedCount, 10000); err != nil {
+			IngestHandlerRequests(domain, "error", "delivery_timeout").Inc()
+			c.JSON(http.StatusServiceUnavailable, gin.H{"ok": false, "delivery_error": err.Error()})
+			return
+		}
+	}
+	// Emit success metrics only after Kafka delivery confirmed
+	IngestHandlerRequests(domain, "success", "").Add(float64(producedCount))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 	return
 }
