@@ -55,9 +55,9 @@ var ddlStatements = []string{
     INDEX idx_origin origin TYPE bloom_filter(0.05) GRANULARITY 1,
     INDEX idx_path path TYPE bloom_filter(0.01) GRANULARITY 1
 )
-ENGINE = MergeTree
+ENGINE = ReplacingMergeTree(created_at)
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (project_id, toDate(created_at), created_at, name)
+ORDER BY (project_id, toDate(created_at), created_at, name, id)
 SETTINGS index_granularity = 8192`,
 
 	// 2. sessions

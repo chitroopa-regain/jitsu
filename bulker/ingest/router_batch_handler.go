@@ -243,5 +243,11 @@ func (r *Router) BatchHandler(c *gin.Context) {
 		response["errors"] = errors
 	}
 
-	c.JSON(http.StatusOK, response)
+	if len(errors) > 0 {
+		// Return 503 so the SDK retries the batch. ClickHouse ReplacingMergeTree
+		// deduplicates by messageId on merge, so retried events are safe.
+		c.JSON(http.StatusServiceUnavailable, response)
+	} else {
+		c.JSON(http.StatusOK, response)
+	}
 }

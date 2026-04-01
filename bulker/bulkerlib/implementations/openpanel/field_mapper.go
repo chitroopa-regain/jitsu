@@ -187,7 +187,7 @@ func MapEvent(msg map[string]any, projectID string) (map[string]any, string) {
 	adjusted, originalTs := adjustTimestamp(msg)
 
 	event := map[string]any{
-		"id":             uuid.New().String(),
+		"id":             getString(msg, "messageId", getString(msg, "message_id", uuid.New().String())),
 		"name":           name,
 		"sdk_name":       getNested(ctx, "library.name"),
 		"sdk_version":    getNested(ctx, "library.version"),
