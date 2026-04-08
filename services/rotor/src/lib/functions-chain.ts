@@ -45,6 +45,7 @@ import { UDFWrapper } from "./udf_wrapper";
 import { warehouseQuery } from "./warehouse-store";
 import { MongodbDestination } from "./mongodb-destination";
 import { createFunctionsServerWrapper, FunctionsClass, FunctionsClassLegacy } from "./functions-server-client";
+import OpenpanelDropEventsFunction from "./openpanel-drop-events";
 
 const serverEnv = getServerEnv();
 const fastStoreWorkspaceId = (serverEnv.FAST_STORE_WORKSPACE_ID ?? "").split(",").filter(x => x.length > 0);
@@ -55,6 +56,9 @@ function getBuiltinFunction(id: string): JitsuFunction | undefined {
   }
   if (id === "builtin.destination.mongodb") {
     return MongodbDestination as JitsuFunction;
+  }
+  if (id === "builtin.transformation.openpanel-drop-events") {
+    return OpenpanelDropEventsFunction as JitsuFunction;
   }
   return _getBuiltinFunction(id);
 }
@@ -244,7 +248,16 @@ export function buildFunctionChain(
     udfCache.ttl(conId, udfTTL);
   }
 
+  const autoInjectedTransformations: any[] = [];
+  if (connection.type === "openpanel" && serverEnv.REDIS_URL) {
+    autoInjectedTransformations.push({
+      functionId: "builtin.transformation.openpanel-drop-events",
+      functionOptions: { projectId: connection.credentials?.projectId },
+    });
+  }
+
   const aggregatedFunctions: any[] = [
+    ...autoInjectedTransformations,
     ...(connectionData.functions || []).filter((f: any) => f.functionId.startsWith("builtin.transformation.")),
     ...(hasUdfFunctions ? [{ functionId: "udf.PIPELINE" }] : []),
     mainFunction,
