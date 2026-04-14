@@ -139,7 +139,10 @@ ENGINE = MergeTree
 ORDER BY (project_id, profile_id, alias, created_at)
 SETTINGS index_granularity = 8192`,
 
-	// 5. profile_traits — user-defined properties from identify calls (one row per trait)
+	// 5. profile_traits — per-key store for profile properties (one row per trait).
+	// Holds both user-defined identify traits AND device/geo keys (country, os, brand, ...)
+	// dual-written from profile_manager.go since 2026-04-14, so the chart.values
+	// autocomplete can read all profile.properties.* lookups from a single fast table.
 	`CREATE TABLE IF NOT EXISTS {{database}}.profile_traits
 (
     project_id String CODEC(ZSTD(3)),

@@ -13,16 +13,18 @@ import (
 
 const profileTTL = 24 * time.Hour
 
-// deviceGeoKeys are properties extracted from event context (device/geo info).
-// These stay in the profiles.properties Map. Everything else from identify traits
-// goes to the profile_traits table.
+// deviceGeoKeys are server/SDK-context fields (device + geo). They live in the
+// profiles.properties Map and are written via extractDeviceProps + geo enrichment,
+// not via the identify trait loop. Everything else from identify traits goes to
+// profile_traits — including the SDK user-properties total_ram, total_disk_space,
+// display_height/width/inches which the Android client sends as identify traits
+// via logUserProperty(). Those used to be in this set and got silently dropped;
+// they were removed on 2026-04-14 so the trait loop writes them to profile_traits.
 var deviceGeoKeys = map[string]bool{
 	"os": true, "os_version": true, "device": true, "brand": true, "model": true,
 	"country": true, "region": true, "city": true,
 	"longitude": true, "latitude": true,
 	"browser": true, "browser_version": true,
-	"display_height": true, "display_width": true, "display_inches": true,
-	"total_ram": true, "total_disk_space": true,
 }
 
 // standardFields are top-level profile columns, not stored in properties/traits.
@@ -188,8 +190,10 @@ func (pm *ProfileManager) EnsureProfile(msg map[string]any, country string, prof
 
 // EnsureProfilesBatch checks all profile_ids via Redis Pipeline and creates profiles
 // for any that don't exist. 2 Redis round-trips total (Pipeline EXISTS + Pipeline SETEX).
+// Device/geo keys for newly created profiles are also dual-written to traitRows so
+// chart.values autocomplete can read all profile.properties.* from profile_traits.
 // Returns error if Redis read pipeline fails (caller should abort batch so Kafka retries).
-func (pm *ProfileManager) EnsureProfilesBatch(inputs []profileInput, enrichedEvents []map[string]any, profileRows *[]map[string]any, identifiedIDs map[string]bool) error {
+func (pm *ProfileManager) EnsureProfilesBatch(inputs []profileInput, enrichedEvents []map[string]any, profileRows *[]map[string]any, traitRows *[]map[string]any, identifiedIDs map[string]bool) error {
 	if len(inputs) == 0 {
 		return nil
 	}
@@ -244,8 +248,19 @@ func (pm *ProfileManager) EnsureProfilesBatch(inputs []profileInput, enrichedEve
 	for _, p := range missingProfiles {
 		deviceProps := extractDeviceProps(p.input.context)
 		if p.eventIdx < len(enrichedEvents) {
-			if country, ok := enrichedEvents[p.eventIdx]["country"].(string); ok && country != "" && country != "\x00\x00" {
-				deviceProps["country"] = country
+			enrichedEvent := enrichedEvents[p.eventIdx]
+			// Copy all geo-enriched fields from the event into deviceProps so they
+			// land in profiles.properties Map AND profile_traits via dual-write.
+			for _, key := range []string{"country", "region", "city"} {
+				if v, ok := enrichedEvent[key].(string); ok && v != "" && v != "\x00\x00" {
+					deviceProps[key] = v
+				}
+			}
+			if lat, ok := enrichedEvent["latitude"].(float32); ok {
+				deviceProps["latitude"] = fmt.Sprint(lat)
+			}
+			if lng, ok := enrichedEvent["longitude"].(float32); ok {
+				deviceProps["longitude"] = fmt.Sprint(lng)
 			}
 		}
 
@@ -261,6 +276,20 @@ func (pm *ProfileManager) EnsureProfilesBatch(inputs []profileInput, enrichedEve
 			"created_at":  p.input.timestamp,
 		}
 		*profileRows = append(*profileRows, profileRow)
+
+		// Dual-write device/geo keys → profile_traits (same trigger as profiles row write)
+		for k, v := range deviceProps {
+			if v == "" {
+				continue
+			}
+			*traitRows = append(*traitRows, map[string]any{
+				"project_id": pm.projectID,
+				"profile_id": p.input.profileID,
+				"key":        k,
+				"value":      v,
+				"updated_at": p.input.timestamp,
+			})
+		}
 
 		data, err := json.Marshal(profileRow)
 		if err != nil {
@@ -369,6 +398,22 @@ func (pm *ProfileManager) ProcessIdentifyBatch(inputs []profileInput, profileRow
 			})
 		}
 
+		// Dual-write device/geo keys → profile_traits so chart.values autocomplete
+		// can read all profile.properties.* lookups from a single table.
+		// profiles.properties Map is still written above (for existing aggregation queries).
+		for k, v := range newProps {
+			if v == "" {
+				continue
+			}
+			*traitRows = append(*traitRows, map[string]any{
+				"project_id": pm.projectID,
+				"profile_id": input.profileID,
+				"key":        k,
+				"value":      v,
+				"updated_at": input.timestamp,
+			})
+		}
+
 		firstName := getString(input.traits, "first_name", getString(input.traits, "firstName", ""))
 		if firstName == "" {
 			firstName = input.profileID
@@ -433,6 +478,9 @@ func extractDeviceProps(ctx map[string]any) map[string]string {
 	props := make(map[string]string)
 	if osName := getNested(ctx, "os.name"); osName != "" {
 		props["os"] = osName
+	}
+	if osVersion := getNested(ctx, "os.version"); osVersion != "" {
+		props["os_version"] = osVersion
 	}
 	if brand := getNested(ctx, "device.manufacturer"); brand != "" {
 		props["brand"] = brand

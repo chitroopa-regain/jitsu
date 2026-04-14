@@ -213,7 +213,7 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 		s.state.Status = bulkerlib.Failed
 		return s.state, fmt.Errorf("identify batch failed (Kafka will retry): %w", err)
 	}
-	if err := s.bulker.profileMgr.EnsureProfilesBatch(s.trackProfiles, s.trackEvents, &s.profilesBuf, identifiedIDs); err != nil {
+	if err := s.bulker.profileMgr.EnsureProfilesBatch(s.trackProfiles, s.trackEvents, &s.profilesBuf, &s.traitsBuf, identifiedIDs); err != nil {
 		s.state.SetError(err)
 		s.state.Status = bulkerlib.Failed
 		return s.state, fmt.Errorf("ensure profiles batch failed (Kafka will retry): %w", err)
