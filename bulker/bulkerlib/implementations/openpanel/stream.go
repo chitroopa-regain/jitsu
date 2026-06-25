@@ -3,6 +3,7 @@ package openpanel
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	bulkerlib "github.com/jitsucom/bulker/bulkerlib"
@@ -231,30 +232,40 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 		}
 	}
 
-	// Phase 4: Write all 4 tables to ClickHouse
+	// Phase 4: Write all 5 tables to ClickHouse in parallel
 	db := s.bulker.config.Database
 
-	if err := WriteEvents(ctx, s.bulker.chConn, db, s.eventsBuf); err != nil {
-		s.state.SetError(err)
-		s.state.Status = bulkerlib.Failed
-		return s.state, err
+	type writeJob struct {
+		name string
+		fn   func() error
 	}
-	if err := WriteSessions(ctx, s.bulker.chConn, db, s.sessionsBuf); err != nil {
-		s.state.SetError(err)
-		s.state.Status = bulkerlib.Failed
-		return s.state, err
+
+	jobs := []writeJob{
+		{"events", func() error { return WriteEvents(ctx, s.bulker.chConn, db, s.eventsBuf) }},
+		{"sessions", func() error { return WriteSessions(ctx, s.bulker.chConn, db, s.sessionsBuf) }},
+		{"profiles", func() error { return WriteProfiles(ctx, s.bulker.chConn, db, s.profilesBuf) }},
+		{"traits", func() error { return WriteTraits(ctx, s.bulker.chConn, db, s.traitsBuf) }},
+		{"aliases", func() error { return WriteAliases(ctx, s.bulker.chConn, db, s.aliasesBuf) }},
 	}
-	if err := WriteProfiles(ctx, s.bulker.chConn, db, s.profilesBuf); err != nil {
-		s.state.SetError(err)
-		s.state.Status = bulkerlib.Failed
-		return s.state, err
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(jobs))
+
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j writeJob) {
+			defer wg.Done()
+			if err := j.fn(); err != nil {
+				errChan <- fmt.Errorf("write %s failed: %w", j.name, err)
+			}
+		}(job)
 	}
-	if err := WriteTraits(ctx, s.bulker.chConn, db, s.traitsBuf); err != nil {
-		s.state.SetError(err)
-		s.state.Status = bulkerlib.Failed
-		return s.state, err
-	}
-	if err := WriteAliases(ctx, s.bulker.chConn, db, s.aliasesBuf); err != nil {
+
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) > 0 {
+		err := <-errChan
 		s.state.SetError(err)
 		s.state.Status = bulkerlib.Failed
 		return s.state, err
