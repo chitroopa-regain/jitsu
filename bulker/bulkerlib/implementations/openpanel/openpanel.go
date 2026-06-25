@@ -92,6 +92,7 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		chProtocol = clickhouse.HTTP
 	}
 
+	// initConn: short-lived, one-shot connection for CREATE DATABASE, no pool needed.
 	initConn, err := clickhouse.Open(&clickhouse.Options{
 		Addr:        []string{cfg.Hosts},
 		Auth:        clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
@@ -125,7 +126,7 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		},
 		DialTimeout:  10 * time.Second,
 		MaxOpenConns: 64,
-		MaxIdleConns: 16,
+		MaxIdleConns: 32,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to clickhouse: %v", err)
