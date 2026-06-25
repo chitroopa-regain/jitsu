@@ -123,7 +123,9 @@ func NewOpenPanelBulker(bulkerConfig bulkerlib.Config) (bulkerlib.Bulker, error)
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
 		},
-		DialTimeout: 10 * time.Second,
+		DialTimeout:  10 * time.Second,
+		MaxOpenConns: 64,
+		MaxIdleConns: 16,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to clickhouse: %v", err)

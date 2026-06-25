@@ -2,6 +2,7 @@ package openpanel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -265,10 +266,14 @@ func (s *OpenPanelStream) Complete(ctx context.Context) (bulkerlib.State, error)
 	close(errChan)
 
 	if len(errChan) > 0 {
-		err := <-errChan
-		s.state.SetError(err)
+		var errs []error
+		for err := range errChan {
+			errs = append(errs, err)
+		}
+		joined := errors.Join(errs...)
+		s.state.SetError(joined)
 		s.state.Status = bulkerlib.Failed
-		return s.state, err
+		return s.state, joined
 	}
 
 	s.state.Status = bulkerlib.Completed
