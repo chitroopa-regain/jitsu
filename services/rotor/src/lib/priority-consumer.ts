@@ -31,18 +31,17 @@ export function createPriorityConsumer(
   const queue = new PQueue({ concurrency });
 
   const onSizeLessThan = async (limit: number) => {
-    if (queue.size < limit) {
-      return;
+    while (queue.size >= limit) {
+      await new Promise<void>(resolve => {
+        const listener = () => {
+          if (queue.size < limit) {
+            queue.removeListener("next", listener);
+            resolve();
+          }
+        };
+        queue.on("next", listener);
+      });
     }
-    return new Promise<void>(resolve => {
-      const listener = () => {
-        if (queue.size < limit) {
-          queue.removeListener("next", listener);
-          resolve();
-        }
-      };
-      queue.on("next", listener);
-    });
   };
 
   const closeQueue = async () => {

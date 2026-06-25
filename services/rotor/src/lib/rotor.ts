@@ -223,21 +223,17 @@ export function kafkaRotor(cfg: KafkaRotorConfig): KafkaRotor {
       const queue = new PQueue({ concurrency });
 
       const onSizeLessThan = async (limit: number) => {
-        // Instantly resolve if the queue is empty.
-        if (queue.size < limit) {
-          return;
+        while (queue.size >= limit) {
+          await new Promise<void>(resolve => {
+            const listener = () => {
+              if (queue.size < limit) {
+                queue.removeListener("next", listener);
+                resolve();
+              }
+            };
+            queue.on("next", listener);
+          });
         }
-
-        return new Promise<void>(resolve => {
-          const listener = () => {
-            if (queue.size < limit) {
-              queue.removeListener("next", listener);
-              resolve();
-            }
-          };
-
-          queue.on("next", listener);
-        });
       };
       closeQueue = async () => {
         log.atInfo().log("Closing queue...");
@@ -247,9 +243,15 @@ export function kafkaRotor(cfg: KafkaRotorConfig): KafkaRotor {
       await consumer.run({
         partitionsConsumedConcurrently: 8,
         eachMessage: async ({ message, topic, partition }) => {
-          //make sure that queue has no more entities than concurrency limit (running tasks not included)
+          // Wait until pending queue size is below concurrency. PQueue can have up to
+          // `concurrency` tasks running in addition to the pending size — actual inflight
+          // ceiling is therefore ~2 * concurrency (running tasks not included).
           await onSizeLessThan(concurrency);
-          queue.add(async () => onMessage(message, topic, partition));
+
+          // Defensive: onMessage absorbs all handler errors; this catches only synchronous throws above Promise.all.
+          queue.add(async () => onMessage(message, topic, partition)).catch(e => {
+            log.atError().withCause(e).log(`Unexpected error processing message on topic ${topic}, partition ${partition}`);
+          });
         },
       });
 
