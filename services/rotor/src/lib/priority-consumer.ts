@@ -1,6 +1,7 @@
 import { ProfileBuilder } from "@jitsu/destination-functions";
 import { kafkaAdmin, kafkaCredentials, kafkaSettings, topicName } from "./kafka";
 import PQueue from "p-queue";
+import { EventEmitter } from "events";
 import { getLog, parseNumber } from "juava";
 import { KafkaJS } from "@confluentinc/kafka-javascript";
 import { getServerEnv } from "../serverEnv";
@@ -29,17 +30,14 @@ export function createPriorityConsumer(
   let consumers: KafkaJS.Consumer[] = [];
   const rateLimitWindows: Record<ProfileId, RateLimitWindow> = {};
   const queue = new PQueue({ concurrency });
+  const eventEmitter = new EventEmitter();
+  eventEmitter.setMaxListeners(1000);
+  let virtualSize = 0;
 
   const onSizeLessThan = async (limit: number) => {
-    while (queue.size >= limit) {
+    while (virtualSize >= limit) {
       await new Promise<void>(resolve => {
-        const listener = () => {
-          if (queue.size < limit) {
-            queue.removeListener("next", listener);
-            resolve();
-          }
-        };
-        queue.on("next", listener);
+        eventEmitter.once("drain", resolve);
       });
     }
   };
@@ -135,10 +133,16 @@ export function createPriorityConsumer(
               return;
             }
             await onSizeLessThan(sizeCap);
+            virtualSize++;
             queue
               .add(
                 async () => {
-                  await rateLimitedExecution(profileId, profileTask(profileId, i), 1000 * 30);
+                  try {
+                    await rateLimitedExecution(profileId, profileTask(profileId, i), 1000 * 30);
+                  } finally {
+                    virtualSize--;
+                    eventEmitter.emit("drain");
+                  }
                 },
                 { priority: priorityLevels - i }
               )

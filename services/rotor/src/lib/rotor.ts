@@ -1,6 +1,7 @@
 import { getLog, isTruish, parseNumber, requireDefined } from "juava";
 import { connectToKafka, deatLetterTopic, KafkaCredentials, retryTopic } from "./kafka-config";
 import PQueue from "p-queue";
+import { EventEmitter } from "events";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import { getRetryPolicy, retryBackOffTime, retryLogMessage } from "./retries";
@@ -221,17 +222,14 @@ export function kafkaRotor(cfg: KafkaRotorConfig): KafkaRotor {
       }
 
       const queue = new PQueue({ concurrency });
+      const eventEmitter = new EventEmitter();
+      eventEmitter.setMaxListeners(1000);
+      let virtualSize = 0;
 
       const onSizeLessThan = async (limit: number) => {
-        while (queue.size >= limit) {
+        while (virtualSize >= limit) {
           await new Promise<void>(resolve => {
-            const listener = () => {
-              if (queue.size < limit) {
-                queue.removeListener("next", listener);
-                resolve();
-              }
-            };
-            queue.on("next", listener);
+            eventEmitter.once("drain", resolve);
           });
         }
       };
@@ -248,8 +246,16 @@ export function kafkaRotor(cfg: KafkaRotorConfig): KafkaRotor {
           // ceiling is therefore ~2 * concurrency (running tasks not included).
           await onSizeLessThan(concurrency);
 
+          virtualSize++;
           // Defensive: onMessage absorbs all handler errors; this catches only synchronous throws above Promise.all.
-          queue.add(async () => onMessage(message, topic, partition)).catch(e => {
+          queue.add(async () => {
+            try {
+              await onMessage(message, topic, partition);
+            } finally {
+              virtualSize--;
+              eventEmitter.emit("drain");
+            }
+          }).catch(e => {
             log.atError().withCause(e).log(`Unexpected error processing message on topic ${topic}, partition ${partition}`);
           });
         },
