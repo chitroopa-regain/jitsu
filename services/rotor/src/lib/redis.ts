@@ -7,18 +7,18 @@ const log = getLog("redis");
 const serverEnv = getServerEnv();
 
 function hideSensitiveInfoFromURL(url: string) {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch (e) {
-    //if URL is not parseable, we just return it as is. We can't fail and
-    //rethrow error
-    return url;
-  }
-  if (parsed.password) {
-    parsed.password = "****";
-  }
-  return parsed.toString();
+  // Redact credentials textually rather than via the URL API.
+  //
+  // The URL-based approach silently leaked the password for Sentinel-style URLs.
+  // Those have an EMPTY host (`redis://:password@/0?name=mymaster`), and per the
+  // WHATWG URL spec the `password` setter is a no-op when the host is empty --
+  // so `parsed.password = "****"` did nothing and toString() returned the
+  // password verbatim. It then reached the INFO-level "successfully connected"
+  // log below, and from there into log aggregation.
+  //
+  // The standalone form (`redis://user:password@host:6379/1`) masked correctly,
+  // which is why this went unnoticed: only the Sentinel deployment was affected.
+  return url.replace(/(\/\/[^/@]*:)[^/@]*@/, "$1****@");
 }
 
 function resolveRedisConnectionOptions(
